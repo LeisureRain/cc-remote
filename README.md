@@ -44,6 +44,28 @@ Now you can vibe code from literally anywhere with mobile data or Wi-Fi — your
 - **Multi-client watching** — multiple Android devices can view the same session simultaneously
 - **Web terminal** — built-in xterm.js browser terminal at `/terminal`
 
+### Web Terminal (xterm.js)
+
+The server includes a full-featured browser-based terminal powered by [xterm.js](https://xtermjs.org/). No need to install the Android app — just open a browser tab and you're in.
+
+**What it can do:**
+
+| Capability | Description |
+|---|---|
+| **Real-time PTY streaming** | Raw terminal output streamed via WebSocket — full ANSI colors, cursor movements, and interactive TUI apps |
+| **Session dashboard** | Dropdown lists all active sessions with their directory and status (running / exited) |
+| **Create sessions** | Enter a working directory and spawn a new Claude Code session with one click |
+| **Directory browser** | Overlay file picker — navigate the server filesystem, select any directory with a visual tree |
+| **Connect / Disconnect / Kill** | Full session lifecycle control from the toolbar |
+| **Workspace-aware** | Respects the `workspace` config setting — pre-fills the workspace path and clamps directory browsing |
+| **Connection status** | Live indicator shows connected (green) or disconnected (red) |
+| **Keyboard input** | Direct keystroke forwarding to the PTY — type commands just like a local terminal |
+| **Resizable** | Terminal auto-fills the browser window; resize the tab and it adapts |
+
+**Access:** Open `http://<server-ip>:11199/terminal?token=<your-token>` in any modern browser. The auth token is printed to the server console on startup.
+
+The web terminal is great for quick access from a laptop, pairing sessions with a teammate, or as a fallback when your phone isn't handy. It shares the same WebSocket protocol as the Android app, so you can even have both connected to the same session simultaneously.
+
 ## Quick Start
 
 ### Server
