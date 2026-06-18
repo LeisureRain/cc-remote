@@ -1,14 +1,36 @@
 # CC Remote
 
-Remote Claude Code via Android. Browse directories, start Claude Code sessions, and chat with Claude — all from your Android device over the local network.
+**Code from your couch.** CC Remote lets you control Claude Code on your workstation from your Android phone — browse project directories, start coding sessions, and chat with Claude over WebSocket. It's the ultimate tool for vibe coders who want to keep the flow going without being chained to a desk.
 
-## Architecture
+Got an idea while grabbing coffee? Pull out your phone, describe what you want, and Claude Code does the rest on your real dev machine. All you need is a network connection between your phone and workstation.
+
+## How It Works
 
 ```
-Android App  ←──WebSocket (JSON)──→  Node.js Server  ←──PTY──→  claude CLI
+┌──────────────┐     WebSocket (JSON)     ┌────────────────┐     PTY     ┌──────────┐
+│ Android App  │ ◄──────────────────────► │ Node.js Server │ ◄─────────► │  claude  │
+│  (anywhere)  │     over LAN / VPN       │  (workstation) │            │   CLI    │
+└──────────────┘                          └────────────────┘            └──────────┘
 ```
 
-The Node.js server runs on your workstation, spawning `claude` CLI processes in pseudo-terminals. The Android app connects over WebSocket to list, create, and interact with sessions.
+1. The **Node.js server** runs on your workstation, spawning `claude` CLI processes in pseudo-terminals
+2. The **Android app** connects over WebSocket to list sessions, browse directories, and chat with Claude
+3. Claude Code reads and writes files on your workstation just like it would if you were sitting at the keyboard
+
+The chat interface renders Claude's Markdown responses — including tables, code blocks, and links — directly in the app. You describe what you want in natural language, Claude executes, and you see the results in real time.
+
+## Remote Access with ZeroTier
+
+The server listens on your local network by default. To access it from anywhere — a café, the office, or your couch — set up a virtual LAN with [ZeroTier](https://www.zerotier.com/):
+
+1. **Create a ZeroTier network** at [my.zerotier.com](https://my.zerotier.com)
+2. **Install ZeroTier** on your workstation and Android phone, then join both to your network
+3. **Start the CC Remote server** — it binds to `0.0.0.0` by default, so it's reachable on the ZeroTier virtual interface too
+4. **Configure the Android app** to use your workstation's ZeroTier IP (e.g. `10.147.17.x:11199`)
+
+Now you can vibe code from literally anywhere with mobile data or Wi-Fi — your phone and workstation are on the same virtual LAN, as if they were in the same room. No port forwarding, no dynamic DNS, no exposing services to the public internet.
+
+> **Pro tip:** ZeroTier is free for up to 25 devices. If you're behind a restrictive firewall, try [Tailscale](https://tailscale.com/) as an alternative — it uses WireGuard under the hood and works great with CC Remote too.
 
 ## Features
 

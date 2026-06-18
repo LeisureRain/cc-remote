@@ -1,14 +1,36 @@
 # CC Remote
 
-通过 Android 设备远程使用 Claude Code。在局域网内浏览目录、启动 Claude Code 会话并与 Claude 对话。
+**躺在沙发上写代码。** CC Remote 让你用 Android 手机远程操控工作站上的 Claude Code — 浏览项目目录、启动编程会话、用聊天的方式指挥 Claude 干活。专为 vibe coder 打造：灵感来了掏手机就能写，不用被绑在电脑前。
 
-## 架构
+喝咖啡时突然有个想法？掏出手机，用自然语言描述需求，Claude Code 在你的真实开发机上帮你搞定。你只需要手机和电脑之间有个网络连接。
+
+## 工作原理
 
 ```
-Android App  ←──WebSocket (JSON)──→  Node.js Server  ←──PTY──→  claude CLI
+┌──────────────┐   WebSocket (JSON)   ┌────────────────┐    PTY    ┌──────────┐
+│  Android App │ ◄──────────────────► │ Node.js Server │ ◄───────► │  claude  │
+│   (随时随地)  │   局域网 / VPN 连接   │   (你的电脑)    │          │   CLI    │
+└──────────────┘                     └────────────────┘          └──────────┘
 ```
 
-Node.js 服务端运行在你的工作机上，在伪终端中启动 `claude` CLI 进程。Android 应用通过 WebSocket 连接，管理并交互会话。
+1. **Node.js 服务端**运行在你的工作机上，在伪终端中启动 `claude` CLI 进程
+2. **Android 应用**通过 WebSocket 连接，列出会话、浏览目录、与 Claude 对话
+3. Claude Code 在你的工作机上读写文件，就像你正坐在键盘前一样
+
+聊天界面实时渲染 Claude 的 Markdown 回复 — 包括表格、代码块、链接。你用自然语言描述需求，Claude 执行，你在手机上看到实时结果。
+
+## 通过 ZeroTier 远程访问
+
+服务端默认监听局域网地址。想在咖啡馆、办公室或沙发上随时连接？用 [ZeroTier](https://www.zerotier.com/) 创建虚拟局域网：
+
+1. **在 [my.zerotier.com](https://my.zerotier.com) 创建一个 ZeroTier 网络**
+2. **在你的工作机和 Android 手机上安装 ZeroTier**，把两台设备都加入你的网络
+3. **启动 CC Remote 服务端** — 默认绑定 `0.0.0.0`，ZeroTier 虚拟网卡也能访问
+4. **在 Android 应用中配置**你工作机的 ZeroTier IP（如 `10.147.17.x:11199`）
+
+搞定。无论你用的是移动数据还是 Wi-Fi，手机和电脑都在同一个虚拟局域网里，就像在同一间屋子里。无需端口转发、无需动态 DNS、无需把服务暴露到公网。
+
+> **提示：** ZeroTier 免费支持最多 25 台设备。如果遇到严格的防火墙限制，可以试试 [Tailscale](https://tailscale.com/) — 底层基于 WireGuard，与 CC Remote 配合同样完美。
 
 ## 功能
 
