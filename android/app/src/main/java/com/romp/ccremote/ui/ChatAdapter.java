@@ -93,16 +93,39 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
             // User messages: plain text
             holder.textView.setText(text);
         } else {
-            // Claude messages: render Markdown with table support
-            if (!markwonInited) {
-                markwon = Markwon.builder(holder.textView.getContext())
-                        .usePlugin(CorePlugin.create())
-                        .usePlugin(TablePlugin.create(holder.textView.getContext()))
-                        .build();
-                markwonInited = true;
+            // Claude messages: render Markdown or plain text based on toggle
+            if (msg.showRendered) {
+                try {
+                    if (!markwonInited) {
+                        markwon = Markwon.builder(holder.textView.getContext())
+                                .usePlugin(CorePlugin.create())
+                                .usePlugin(TablePlugin.create(holder.textView.getContext()))
+                                .build();
+                        markwonInited = true;
+                    }
+                    markwon.setMarkdown(holder.textView, text);
+                    holder.textView.setMovementMethod(LinkMovementMethod.getInstance());
+                } catch (Exception e) {
+                    // Markdown rendering failed — fall back to plain text
+                    msg.showRendered = false;
+                    holder.textView.setText(text);
+                    holder.textView.setMovementMethod(null);
+                    e.printStackTrace();
+                }
+            } else {
+                holder.textView.setText(text);
+                holder.textView.setMovementMethod(null);
             }
-            markwon.setMarkdown(holder.textView, text);
-            holder.textView.setMovementMethod(LinkMovementMethod.getInstance());
+
+            // Toggle button: shows what clicking it will switch TO
+            if (holder.toggleBtn != null) {
+                holder.toggleBtn.setText(msg.showRendered ? "原文" : "渲染");
+                holder.toggleBtn.setVisibility(View.VISIBLE);
+                holder.toggleBtn.setOnClickListener(v -> {
+                    msg.showRendered = !msg.showRendered;
+                    notifyItemChanged(position);
+                });
+            }
         }
     }
 
@@ -114,6 +137,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
     static class Holder extends RecyclerView.ViewHolder {
         TextView textView;
         TextView timeView;
+        TextView toggleBtn;
         boolean isUser;
 
         Holder(View itemView, boolean isUser) {
@@ -121,6 +145,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
             this.isUser = isUser;
             textView = itemView.findViewById(R.id.chat_text);
             timeView = itemView.findViewById(R.id.chat_time);
+            toggleBtn = itemView.findViewById(R.id.btn_toggle_render);
         }
     }
 }

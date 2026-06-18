@@ -89,6 +89,10 @@ cd android
 
 Install the APK on your device. Configure the server IP and port in Settings (default port **11199**).
 
+> **⚠️ Important for background notifications:** To receive Claude's replies when the app is in the background:
+> 1. **Notification access** — On first launch, Android will ask for notification permission. Tap "Allow". If you skipped it, go to **Settings → Apps → CC Remote → Notifications** and enable all notification channels. Without this, reply notifications will be **silent** (no sound/vibration).
+> 2. **Battery optimization** — Go to **Settings → Apps → CC Remote → Battery → Unrestricted** (or disable battery optimization). Many Chinese ROMs (MIUI, ColorOS, EMUI, etc.) aggressively kill background services by default — without this exception, the foreground service will be killed and you'll miss notifications.
+
 ## Configuration
 
 Edit `server/config.json`:

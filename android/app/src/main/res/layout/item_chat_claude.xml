@@ -18,23 +18,44 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/bubble_claude"
-            android:fontFamily="monospace"
             android:paddingHorizontal="8dp"
             android:paddingVertical="6dp"
             android:textColor="#C8D6E5"
             android:textSize="13sp"
             android:textIsSelectable="true"
-            android:layerType="software"
-            tools:text="total 24\ndrwxr-xr-x  5 user  staff   160 Jun 18 14:32 .\ndrwxr-xr-x  3 user  staff    96 Jun 18 14:30 .." />
+            tools:text="Claude's response with **bold**, `code`, and tables" />
 
-        <TextView
-            android:id="@+id/chat_time"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="#666666"
-            android:textSize="10sp"
             android:layout_marginTop="2dp"
-            android:layout_marginStart="6dp"
-            tools:text="14:32" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/chat_time"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textColor="#666666"
+                android:textSize="10sp"
+                android:layout_marginStart="6dp"
+                tools:text="14:32" />
+
+            <TextView
+                android:id="@+id/btn_toggle_render"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingHorizontal="6dp"
+                android:paddingVertical="1dp"
+                android:textSize="10sp"
+                android:textColor="#8B949E"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="@drawable/bubble_claude"
+                android:layout_marginEnd="4dp"
+                android:gravity="center"
+                tools:text="原文" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

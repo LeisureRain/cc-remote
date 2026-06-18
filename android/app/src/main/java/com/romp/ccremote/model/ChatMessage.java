@@ -10,6 +10,7 @@ public class ChatMessage {
     public int type;       // TYPE_USER or TYPE_CLAUDE
     public String text;    // message content
     public long timestamp; // System.currentTimeMillis()
+    public boolean showRendered = true; // true = render Markdown, false = plain text
 
     public ChatMessage(int type, String text) {
         this.type = type;

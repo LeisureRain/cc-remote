@@ -91,8 +91,9 @@ function cleanForChat(text) {
     if (/^\d+\. (Reading|Checking|Looking|Searching|Found|Writing|Running|Analyzing|Processing|Loading|Opening)/.test(t)) continue;
 
     // ---- Strip thinking-process boilerplate ----
-    // Self-instruction lines that start thinking
-    if (/^(Let me|I need to|I'll|I will|First[,\s]+I|Now[,\s]+I|Next[,\s]+I|Finally[,\s]+I|Let's|I should|I must|I can see|I notice|It looks like|Looking at|Let me check|I'll start|I'm going|We need|We should|We'll|We can|The user|From the|Based on|According to|I see|I found|Here's what|This is what|So I|Since the|Because the|Given that)\b/i.test(t)) continue;
+    // Only strip explicitly Claude-internal reflection markers,
+    // NOT natural conversational openings (those are real responses).
+    if (/^\[\s*(Thinking|Reflection|Reasoning|Planning)\s*\]/.test(t)) continue;
 
     // ---- Strip tool-output artifacts ----
     // File-list bullets: "    •   " "    -   " "     *   "
