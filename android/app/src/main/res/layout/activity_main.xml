@@ -16,6 +16,9 @@
         app:title="@string/title_main"
         app:titleTextColor="@color/text_primary"
         app:navigationIcon="@android:drawable/ic_menu_manage"
+        app:navigationIconTint="@color/text_primary"
+        android:theme="@style/ToolbarTheme"
+        app:popupTheme="@style/WhitePopupMenu"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />

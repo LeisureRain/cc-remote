@@ -2,6 +2,8 @@ package com.romp.ccremote.ui;
 
 import android.content.Intent;
 import android.os.Bundle;
+import android.view.Menu;
+import android.view.MenuItem;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -648,8 +650,39 @@ public class MainActivity extends AppCompatActivity {
     }
 
     // ============================================================
-    // Settings
+    // Menu & Settings
     // ============================================================
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.main_menu, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == R.id.action_about) {
+            showAboutDialog();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    private void showAboutDialog() {
+        String message = "CC Remote\n\n"
+                + "Version: 1.0.0\n\n"
+                + "Author: romp\n"
+                + "Email: srpol@outlook.com\n\n"
+                + "Remote Claude Code via Android.\n"
+                + "Code from your couch.";
+
+        new AlertDialog.Builder(this)
+                .setTitle("About")
+                .setMessage(message)
+                .setPositiveButton("OK", null)
+                .create()
+                .show();
+    }
 
     private void openSettings() {
         Intent intent = new Intent(this, SettingsActivity.class);

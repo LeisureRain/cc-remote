@@ -21,3 +21,4 @@ Thumbs.db
 # Gradle wrapper binaries
 gradle-bin.zip
 local.properties
+*.keystore

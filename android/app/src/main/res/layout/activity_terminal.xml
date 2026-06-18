@@ -15,7 +15,9 @@
         android:layout_height="?attr/actionBarSize"
         android:background="@color/bg_surface"
         app:navigationIcon="?attr/homeAsUpIndicator"
-        app:navigationIconTint="@color/text_primary">
+        app:navigationIconTint="@color/text_primary"
+        android:theme="@style/ToolbarTheme"
+        app:popupTheme="@style/WhitePopupMenu">
 
         <!-- Custom content: title + spacer + continue switch -->
         <LinearLayout
