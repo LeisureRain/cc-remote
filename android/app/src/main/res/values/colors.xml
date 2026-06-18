@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_dark">#1A1A2E</color>
+    <color name="bg_surface">#16213E</color>
+    <color name="bg_terminal">#0C0C1E</color>
+    <color name="accent_red">#FF6B6B</color>
+    <color name="accent_blue">#74C0FC</color>
+    <color name="text_primary">#E0E0E0</color>
+    <color name="text_secondary">#A0A0B0</color>
+    <color name="text_green">#51CF66</color>
+    <color name="text_yellow">#FFD43B</color>
+    <color name="session_running">#51CF66</color>
+    <color name="session_exited">#FF6B6B</color>
+</resources>

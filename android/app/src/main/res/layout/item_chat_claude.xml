@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Claude output bubble — left-aligned, dark gray -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="start"
+    android:paddingHorizontal="6dp"
+    android:paddingVertical="4dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/chat_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bubble_claude"
+            android:fontFamily="monospace"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="6dp"
+            android:textColor="#C8D6E5"
+            android:textSize="13sp"
+            android:textIsSelectable="true"
+            android:layerType="software"
+            tools:text="total 24\ndrwxr-xr-x  5 user  staff   160 Jun 18 14:32 .\ndrwxr-xr-x  3 user  staff    96 Jun 18 14:30 .." />
+
+        <TextView
+            android:id="@+id/chat_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#666666"
+            android:textSize="10sp"
+            android:layout_marginTop="2dp"
+            android:layout_marginStart="6dp"
+            tools:text="14:32" />
+    </LinearLayout>
+</LinearLayout>

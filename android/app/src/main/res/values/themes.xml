@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.RemoteClaw" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#FF6B6B</item>
+        <item name="colorPrimaryVariant">#CC5555</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="colorSecondary">#74C0FC</item>
+        <item name="colorSecondaryVariant">#4A90D9</item>
+        <item name="colorOnSecondary">#000000</item>
+        <item name="android:colorBackground">#1A1A2E</item>
+        <item name="colorSurface">#16213E</item>
+        <item name="colorOnSurface">#E0E0E0</item>
+        <item name="colorError">#FF4757</item>
+        <item name="android:statusBarColor">#0F3460</item>
+    </style>
+</resources>

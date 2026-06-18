@@ -1,0 +1,23 @@
+# Token files
+.cc-remote-token
+.remote-claw-token
+
+# Node
+server/node_modules/
+
+# Gradle
+android/.gradle/
+android/build/
+android/app/build/
+gradle-local/
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Gradle wrapper binaries
+gradle-bin.zip

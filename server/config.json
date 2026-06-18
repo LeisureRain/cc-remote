@@ -1,0 +1,6 @@
+{
+  "port": 11199,
+  "host": "0.0.0.0",
+  "maxSessions": 20,
+  "workspace": ""
+}
