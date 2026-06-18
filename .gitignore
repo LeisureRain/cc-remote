@@ -1,6 +1,5 @@
 # Token files
 .cc-remote-token
-.remote-claw-token
 
 # Node
 server/node_modules/
@@ -21,3 +20,4 @@ Thumbs.db
 
 # Gradle wrapper binaries
 gradle-bin.zip
+local.properties
