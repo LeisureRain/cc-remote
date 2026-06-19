@@ -41,6 +41,11 @@ public class TerminalActivity extends AppCompatActivity
     private volatile boolean isSessionRunning = true;
     private boolean autoScroll = true;
 
+    // Streaming state
+    private boolean streaming = false;
+    private final StringBuilder streamBuf = new StringBuilder();
+    private boolean streamRenderScheduled = false;
+
     private final WebSocketManager.MessageListener messageListener = this::onMessage;
     private final WebSocketManager.ConnectionListener connectionListener = this::onConnectionChanged;
 
@@ -119,7 +124,10 @@ public class TerminalActivity extends AppCompatActivity
             return false;
         });
         inputText.setOnEditorActionListener((v, actionId, event) -> { sendInput(); return true; });
-        btnSend.setOnClickListener(v -> sendInput());
+        btnSend.setOnClickListener(v -> {
+            if (streaming) sendInterrupt();
+            else sendInput();
+        });
 
         // Connect
         WebSocketManager wm = WebSocketManager.getInstance();
@@ -276,18 +284,80 @@ public class TerminalActivity extends AppCompatActivity
                 });
                 break;
             }
+            case "session_delta": {
+                String text = data.has("text") ? data.get("text").getAsString() : "";
+                if (!text.isEmpty()) runOnUiThread(() -> onDelta(text));
+                break;
+            }
             case "session_response": {
-                // Handle directly so messages arrive even if service callback is missing
+                // Final/canonical turn text — finalize the streaming bubble.
                 String text = data.has("data") ? data.get("data").getAsString() : "";
-                if (!text.isEmpty()) {
-                    runOnUiThread(() -> {
-                        chatAdapter.replaceLast(new ChatMessage(ChatMessage.TYPE_CLAUDE, text));
-                        scrollToBottom();
-                    });
-                }
+                runOnUiThread(() -> finalizeTurn(text));
                 break;
             }
         }
+    }
+
+    // ============================================================
+    // Streaming render
+    // ============================================================
+
+    /** Append a streamed chunk to the in-progress Claude bubble (throttled). */
+    private void onDelta(String delta) {
+        if (!streaming) {
+            streaming = true;
+            streamBuf.setLength(0);
+            setStreaming(true);
+            // Ensure there is a Claude bubble to stream into (reuse the
+            // "Thinking…"/"Processing…" placeholder when present).
+            if (chatAdapter.getItemCount() == 0 || chatAdapter.isLastUser()) {
+                chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, ""));
+            }
+        }
+        streamBuf.append(delta);
+        scheduleStreamRender();
+    }
+
+    private final Runnable streamRender = () -> {
+        streamRenderScheduled = false;
+        // Render as plain text while streaming (cheap); markdown on finalize.
+        chatAdapter.updateLastText(streamBuf.toString(), false);
+        scrollToBottom();
+    };
+
+    private void scheduleStreamRender() {
+        if (streamRenderScheduled) return;
+        streamRenderScheduled = true;
+        chatList.postDelayed(streamRender, 80);
+    }
+
+    /** Finalize the current turn: render the canonical text as Markdown. */
+    private void finalizeTurn(String text) {
+        chatList.removeCallbacks(streamRender);
+        streamRenderScheduled = false;
+        boolean wasStreaming = streaming;
+        streaming = false;
+        streamBuf.setLength(0);
+        setStreaming(false);
+        if (text == null || text.isEmpty()) {
+            // Empty final with nothing streamed — drop a dangling placeholder.
+            if (!wasStreaming) return;
+            text = "";
+        }
+        chatAdapter.replaceLast(new ChatMessage(ChatMessage.TYPE_CLAUDE, text));
+        scrollToBottom();
+    }
+
+    /** Toggle the send button between Send and Stop. */
+    private void setStreaming(boolean s) {
+        btnSend.setImageResource(s
+                ? android.R.drawable.ic_menu_close_clear_cancel
+                : android.R.drawable.ic_menu_send);
+        btnSend.setContentDescription(s ? "Stop" : "Send");
+    }
+
+    private void sendInterrupt() {
+        WebSocketManager.getInstance().sendInterrupt(sessionId);
     }
 
     private void handleChatHistory(JsonObject data) {
@@ -315,7 +385,15 @@ public class TerminalActivity extends AppCompatActivity
     private void handleError(JsonObject data) {
         String error = data.has("error") ? data.get("error").getAsString() : "Unknown error";
         runOnUiThread(() -> {
-            chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "⚠ " + error));
+            // While streaming, finalize the partial text with the error so the
+            // bubble settles and the button resets.
+            if (streaming) {
+                streamBuf.append("\n\n⚠ ").append(error);
+                finalizeTurn(streamBuf.toString());
+                streamBuf.setLength(0);
+            } else {
+                chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "⚠ " + error));
+            }
             Toast.makeText(this, error, Toast.LENGTH_SHORT).show();
         });
     }
@@ -333,6 +411,10 @@ public class TerminalActivity extends AppCompatActivity
     // ============================================================
 
     private void sendInput() {
+        // If a turn is streaming, stop is handled in the button click — in
+        // case we get here via keyboard, block sending while busy.
+        if (streaming) return;
+
         // Keep leading/trailing spaces so commands like "  indent" aren't lost.
         // Only reject truly empty input.
         final String raw = inputText.getText().toString();
@@ -358,6 +440,8 @@ public class TerminalActivity extends AppCompatActivity
             chatList.scrollToPosition(target);
         }, 100);
 
+        // Note: the persistent process always continues, so the `continue`
+        // flag is no longer meaningful; we send it for protocol compat only.
         final boolean useContinue = switchContinue.isChecked();
 
         if (!wm.sendChat(sessionId, text.trim(), useContinue)) {

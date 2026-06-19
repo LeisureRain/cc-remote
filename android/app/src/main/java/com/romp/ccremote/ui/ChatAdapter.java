@@ -72,6 +72,21 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
         return messages.get(messages.size() - 1).text;
     }
 
+    /** Whether the last message is a user message. */
+    public boolean isLastUser() {
+        return !messages.isEmpty() && messages.get(messages.size() - 1).isUser();
+    }
+
+    /** Update the last message's text/render-mode in place (used for streaming). */
+    public void updateLastText(String text, boolean rendered) {
+        if (messages.isEmpty()) return;
+        int pos = messages.size() - 1;
+        ChatMessage m = messages.get(pos);
+        m.text = text;
+        m.showRendered = rendered;
+        notifyItemChanged(pos);
+    }
+
     @Override
     public int getItemViewType(int position) {
         return messages.get(position).isUser() ? VIEW_TYPE_USER : VIEW_TYPE_CLAUDE;

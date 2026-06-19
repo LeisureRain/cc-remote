@@ -418,6 +418,13 @@ public class WebSocketManager {
         return send(gson.toJson(msg));
     }
 
+    public boolean sendInterrupt(String sessionId) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "interrupt");
+        msg.addProperty("session_id", sessionId);
+        return send(gson.toJson(msg));
+    }
+
     public boolean sendServerInfo() {
         return send("{\"type\":\"server_info\"}");
     }
