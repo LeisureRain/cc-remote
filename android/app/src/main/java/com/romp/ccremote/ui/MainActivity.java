@@ -1,6 +1,8 @@
 package com.romp.ccremote.ui;
 
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -115,6 +117,22 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_settings).setOnClickListener(v -> openSettings());
 
         updateStatusBar();
+        ensureNotificationPermission();
+    }
+
+    /**
+     * Request POST_NOTIFICATIONS at runtime on Android 13+ so reply/event
+     * notifications actually appear. Uses literal values because the project
+     * compiles against SDK 31 (the TIRAMISU/permission constants don't exist
+     * there yet); harmless no-op on apps targeting below 33.
+     */
+    private void ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33) {
+            String perm = "android.permission.POST_NOTIFICATIONS";
+            if (checkSelfPermission(perm) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{perm}, 1001);
+            }
+        }
     }
 
     @Override
