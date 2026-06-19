@@ -13,6 +13,10 @@ const os = require('os');
 
 const DEBOUNCE_MS = 1500;
 
+// Max chat history entries retained per session (user+claude messages).
+// Bounds memory growth and the size of the chat_history sent on reconnect.
+const MAX_CHAT_HISTORY = 400;
+
 // ============================================================
 // ANSI stripper (regex + rolling buffer)
 // ============================================================
@@ -234,6 +238,14 @@ class ClaudeSession extends EventEmitter {
     this._chatBuffer = [];
   }
 
+  /** Append a chat-history entry, trimming to MAX_CHAT_HISTORY. */
+  _pushHistory(entry) {
+    this._chatHistory.push(entry);
+    if (this._chatHistory.length > MAX_CHAT_HISTORY) {
+      this._chatHistory = this._chatHistory.slice(-MAX_CHAT_HISTORY);
+    }
+  }
+
   // ==========================================================
   // Input
   // ==========================================================
@@ -283,7 +295,7 @@ class ClaudeSession extends EventEmitter {
 
     // Record user message in history immediately
     this._chatPending = prompt;
-    this._chatHistory.push({ role: 'user', text: prompt, ts: Date.now() });
+    this._pushHistory({ role: 'user', text: prompt, ts: Date.now() });
 
     // Use exec (not spawn) so the shell handles argument quoting.
     // On Windows spawn {'-p', 'hello world'} gets split to two args;
@@ -304,7 +316,7 @@ class ClaudeSession extends EventEmitter {
       if (error) {
         const errMsg = (stderr || '').trim() || error.message;
         console.error(`[ClaudeSession ${this.id}] claude -p failed: ${errMsg}`);
-        this._chatHistory.push({ role: 'claude', text: '❌ ' + errMsg, ts: Date.now() });
+        this._pushHistory({ role: 'claude', text: '❌ ' + errMsg, ts: Date.now() });
         cb(new Error(errMsg));
         return;
       }
@@ -313,7 +325,7 @@ class ClaudeSession extends EventEmitter {
       const text = raw.replace(ANSI_RE, '').trim();
       console.log(`[ClaudeSession ${this.id}] claude -p returned ${raw.length} chars (${text.length} after ANSI strip)`);
 
-      this._chatHistory.push({ role: 'claude', text, ts: Date.now() });
+      this._pushHistory({ role: 'claude', text, ts: Date.now() });
       this._lastChatResponse = text;
       cb(null, text);
     });
