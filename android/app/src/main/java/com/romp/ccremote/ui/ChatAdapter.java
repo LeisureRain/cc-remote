@@ -66,6 +66,12 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
         notifyItemRangeRemoved(0, size);
     }
 
+    /** Text of the last message, or null if empty. */
+    public String getLastText() {
+        if (messages.isEmpty()) return null;
+        return messages.get(messages.size() - 1).text;
+    }
+
     @Override
     public int getItemViewType(int position) {
         return messages.get(position).isUser() ? VIEW_TYPE_USER : VIEW_TYPE_CLAUDE;

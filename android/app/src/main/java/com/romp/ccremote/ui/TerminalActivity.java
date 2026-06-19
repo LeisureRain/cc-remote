@@ -260,6 +260,21 @@ public class TerminalActivity extends AppCompatActivity
             case "chat_history":     handleChatHistory(data); break;
             case "session_connected": isSessionRunning = "running".equals(data.get("status").getAsString()); runOnUiThread(this::updateToolbarStatus); break;
             case "session_error":    handleError(data); break;
+            case "error": {
+                // Generic server error (e.g. "previous message still processing").
+                // If a request placeholder is pending, replace it so it doesn't
+                // hang forever; otherwise just surface a toast.
+                String msg = data.has("message") ? data.get("message").getAsString() : "Error";
+                runOnUiThread(() -> {
+                    String last = chatAdapter.getLastText();
+                    if ("Thinking…".equals(last) || "Processing…".equals(last)) {
+                        chatAdapter.replaceLast(new ChatMessage(ChatMessage.TYPE_CLAUDE, "⚠ " + msg));
+                    } else {
+                        Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+                    }
+                });
+                break;
+            }
             case "session_response": {
                 // Handle directly so messages arrive even if service callback is missing
                 String text = data.has("data") ? data.get("data").getAsString() : "";
