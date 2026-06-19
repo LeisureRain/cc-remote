@@ -4,9 +4,14 @@
 # Articles / Publishing
 公众号文章.md
 公众号封面.svg
+公众号封面.png
 
 # Node
 server/node_modules/
+node_modules/
+package.json
+package-lock.json
+scripts/
 
 # Gradle
 android/.gradle/
