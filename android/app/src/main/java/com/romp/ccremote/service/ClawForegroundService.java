@@ -258,6 +258,11 @@ public class ClawForegroundService extends Service {
      * cancel the exact notification that was shown for this session.
      */
     private int getReplyNotifyId() {
+        return replyNotifyId(sessionId);
+    }
+
+    /** Stable reply-notification ID for a given session id (used by callers too). */
+    public static int replyNotifyId(String sessionId) {
         return 1000 + (sessionId != null ? sessionId.hashCode() & 0xFFFF : 0);
     }
 

@@ -58,9 +58,11 @@ public class TerminalActivity extends AppCompatActivity
         // Start foreground service to keep connection alive in background
         ClawForegroundService.start(this, sessionId, sessionDirectory);
 
-        // Clear any stale reply notifications
+        // Clear this session's stale reply notification (not other sessions')
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        if (nm != null) nm.cancelAll();
+        if (nm != null && sessionId != null) {
+            nm.cancel(ClawForegroundService.replyNotifyId(sessionId));
+        }
 
         // Views
         Toolbar toolbar = findViewById(R.id.toolbar);
