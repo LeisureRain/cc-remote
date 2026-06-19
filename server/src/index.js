@@ -122,8 +122,15 @@ function ensureProfilesDir() {
     // Bootstrap default index
     const idx = { profiles: [], active: '' };
     fs.writeFileSync(PROFILES_INDEX, JSON.stringify(idx, null, 2), 'utf8');
-    // Bootstrap default profile
-    const def = { id: 'default', name: 'Default', content: {} };
+    // Bootstrap default profile from the user's CURRENT settings.json so the
+    // first switch back to "Default" restores their real config instead of
+    // wiping it to an empty object.
+    let existingSettings = {};
+    try {
+      const settingsRaw = fs.readFileSync(path.join(os.homedir(), '.claude', 'settings.json'), 'utf8');
+      existingSettings = JSON.parse(settingsRaw);
+    } catch (e) { /* no existing settings — start empty */ }
+    const def = { id: 'default', name: 'Default', content: existingSettings };
     fs.writeFileSync(path.join(PROFILES_DIR, 'default.json'), JSON.stringify(def, null, 2), 'utf8');
     idx.profiles.push({ id: 'default', name: 'Default' });
     idx.active = 'default';
@@ -770,6 +777,11 @@ wss.on('connection', (ws, req) => {
         const settingsPath = path.join(claudeDir, 'settings.json');
         try {
           if (!fs.existsSync(claudeDir)) fs.mkdirSync(claudeDir, { recursive: true });
+          // Back up the current settings.json before overwriting, so a switch
+          // never silently destroys an existing config.
+          if (fs.existsSync(settingsPath)) {
+            try { fs.copyFileSync(settingsPath, settingsPath + '.bak'); } catch (_) { /* best effort */ }
+          }
           fs.writeFileSync(settingsPath, JSON.stringify(sProfile.content, null, 2), 'utf8');
           si.active = sId;
           writeProfileIndex(si);
