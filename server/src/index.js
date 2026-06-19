@@ -14,6 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const url = require('url');
+const { exec } = require('child_process');
 const { SessionManager } = require('./session-manager');
 
 // ============================================================
@@ -420,6 +421,20 @@ connect();
 // ============================================================
 const sessionManager = new SessionManager();
 
+// Cached probe for the `claude` CLI. null = unknown; cached true once found
+// so we don't pay the probe cost on every session create. A negative result
+// is NOT cached, so installing claude after startup is picked up on retry.
+let claudeAvailable = null;
+function checkClaudeAvailable() {
+  return new Promise((resolve) => {
+    if (claudeAvailable === true) return resolve(true);
+    exec('claude --version', { timeout: 8000 }, (err) => {
+      if (!err) claudeAvailable = true;
+      resolve(!err);
+    });
+  });
+}
+
 setInterval(() => { sessionManager.cleanup(); }, 60000);
 
 // ============================================================
@@ -616,6 +631,13 @@ wss.on('connection', (ws, req) => {
         const running = sessionManager.listSessions().filter(s => s.status === 'running').length;
         if (running >= CONFIG.maxSessions) {
           sendToClient(ws, { type: 'error', message: `Max sessions (${CONFIG.maxSessions}) reached` });
+          return;
+        }
+        // Verify the claude CLI is actually available before spawning a shell —
+        // the shell will start fine even when `claude` is missing, so checking
+        // the PTY alone never catches a missing CLI.
+        if (!(await checkClaudeAvailable())) {
+          sendToClient(ws, { type: 'error', message: 'The "claude" CLI was not found in PATH on the server. Install Claude Code and ensure `claude` is runnable.' });
           return;
         }
         try {
