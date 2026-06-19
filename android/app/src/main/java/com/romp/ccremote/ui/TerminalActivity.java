@@ -134,12 +134,20 @@ public class TerminalActivity extends AppCompatActivity
         wm.addMessageListener(messageListener);
         wm.addConnectionListener(connectionListener);
 
-        // Register with foreground service for background notifications
+        // Mark this session as visible so the service won't post notifications
+        // while we're watching. Done directly (race-free) rather than via the
+        // possibly-not-yet-started service instance.
+        ClawForegroundService.setVisibleSession(sessionId);
+
+        // Register with foreground service for kill/exit callbacks
         ClawForegroundService svc = ClawForegroundService.getInstance();
         if (svc != null) svc.addCallback(this);
 
         // Cancel any stale reply notification — user is now watching the chat
-        if (svc != null) svc.cancelReplyNotification();
+        NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (nm != null && sessionId != null) {
+            nm.cancel(ClawForegroundService.replyNotifyId(sessionId));
+        }
 
         if (wm.isConnected()) wm.sendConnectSession(sessionId);
     }
@@ -147,6 +155,8 @@ public class TerminalActivity extends AppCompatActivity
     @Override
     protected void onPause() {
         super.onPause();
+        // No longer the visible session — responses now warrant a notification.
+        ClawForegroundService.clearVisibleSession(sessionId);
         // Don't remove WebSocket listeners — service keeps them alive.
         // But unregister from service callback so duplicate UI updates
         // don't happen on re-entry.

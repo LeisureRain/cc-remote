@@ -38,6 +38,11 @@ public class ClawForegroundService extends Service {
 
     private static ClawForegroundService instance;
 
+    // Session currently visible in a foreground TerminalActivity. Set directly
+    // by the activity (not via the service instance), so the foreground check
+    // is race-free even before the service has finished starting.
+    private static volatile String visibleSessionId;
+
     private String sessionId;
     private String sessionDir;
     private boolean started = false;   // true after first onStartCommand
@@ -75,6 +80,19 @@ public class ClawForegroundService extends Service {
     }
 
     public static ClawForegroundService getInstance() { return instance; }
+
+    /** Mark a session as visible in the foreground (call from Activity.onResume). */
+    public static void setVisibleSession(String sid) { visibleSessionId = sid; }
+
+    /** Clear the visible marker (call from Activity.onPause). */
+    public static void clearVisibleSession(String sid) {
+        if (sid != null && sid.equals(visibleSessionId)) visibleSessionId = null;
+    }
+
+    /** Whether this service's session is currently shown in a foreground activity. */
+    private boolean isSessionVisible() {
+        return sessionId != null && sessionId.equals(visibleSessionId);
+    }
 
     public static void initChannel(Context ctx) {
         NotificationManager nm = (NotificationManager)
@@ -192,16 +210,16 @@ public class ClawForegroundService extends Service {
                 // UI rendering is handled by TerminalActivity's own message
                 // listener (always registered). The service only decides
                 // whether a background notification is needed.
-                if (callbacks.isEmpty()) {
-                    showReplyNotification(text);
-                } else {
+                if (isSessionVisible()) {
                     cancelReplyNotification();
+                } else {
+                    showReplyNotification(text);
                 }
                 break;
             }
             case "session_killed": {
                 for (ChatCallback cb : callbacks) cb.onSessionKilled(sessionId);
-                if (callbacks.isEmpty()) showEventNotification("Session ended (killed)");
+                if (!isSessionVisible()) showEventNotification("Session ended (killed)");
                 stopForeground(true);
                 stopSelf();
                 instance = null;
@@ -210,7 +228,7 @@ public class ClawForegroundService extends Service {
             case "session_exited": {
                 int code = data.has("exit_code") ? data.get("exit_code").getAsInt() : -1;
                 for (ChatCallback cb : callbacks) cb.onSessionExited(sessionId, code);
-                if (callbacks.isEmpty()) showEventNotification("Claude exited (code " + code + ")");
+                if (!isSessionVisible()) showEventNotification("Claude exited (code " + code + ")");
                 break;
             }
         }
