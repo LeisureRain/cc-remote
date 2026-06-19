@@ -730,7 +730,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void showAboutDialog() {
         String message = "CC Remote\n\n"
-                + "Version: 1.0.0\n\n"
+                + "Version: 1.2.0\n\n"
                 + "Author: romp\n"
                 + "Email: srpol@outlook.com\n\n"
                 + "Remote Claude Code via Android.\n"
