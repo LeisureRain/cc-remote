@@ -50,6 +50,7 @@ public class MainActivity extends AppCompatActivity {
     // Profile cache (updated by WebSocket listener)
     private List<ProfileInfo> cachedProfiles = new ArrayList<>();
     private String cachedActiveId = "";
+    private AlertDialog profileDialog;
 
     // Server info from last server_info response
     private String serverOs = null;
@@ -230,7 +231,15 @@ public class MainActivity extends AppCompatActivity {
     private void onProfileList(List<ProfileInfo> profiles, String activeId) {
         cachedProfiles = profiles != null ? profiles : new ArrayList<>();
         cachedActiveId = activeId != null ? activeId : "";
-        runOnUiThread(this::updateProfileStatusBar);
+        runOnUiThread(() -> {
+            updateProfileStatusBar();
+            // If the profile picker is open, rebuild it so it reflects the
+            // latest list/active state after a switch/create/rename/delete.
+            if (profileDialog != null && profileDialog.isShowing()) {
+                profileDialog.dismiss();
+                showProfileDialog();
+            }
+        });
     }
 
     private void updateProfileStatusBar() {
@@ -826,6 +835,8 @@ public class MainActivity extends AppCompatActivity {
                 .setView(root)
                 .setNegativeButton("Close", null)
                 .create();
+        profileDialog = dialog;
+        dialog.setOnDismissListener(d -> { if (profileDialog == dialog) profileDialog = null; });
         dialog.show();
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_bg);
