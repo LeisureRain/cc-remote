@@ -83,10 +83,13 @@ public class ClawForegroundService extends Service {
         if (nm == null) return;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // Silent channel for foreground notification
+            // Low-importance (not NONE) channel for the foreground notification.
+            // IMPORTANCE_NONE can cause some OEMs to suppress or replace the
+            // required foreground-service notification; MIN keeps it quiet but
+            // valid.
             NotificationChannel ch = new NotificationChannel(
                     CHANNEL_ID, "CC Remote",
-                    NotificationManager.IMPORTANCE_NONE);
+                    NotificationManager.IMPORTANCE_MIN);
             ch.setShowBadge(false);
             ch.setSound(null, null);
             ch.enableLights(false);
