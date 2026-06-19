@@ -183,15 +183,6 @@ public class TerminalActivity extends AppCompatActivity
     // ============================================================
 
     @Override
-    public void onResponse(String sid, String text) {
-        if (!sid.equals(sessionId)) return;
-        runOnUiThread(() -> {
-            chatAdapter.replaceLast(new ChatMessage(ChatMessage.TYPE_CLAUDE, text));
-            scrollToBottom();
-        });
-    }
-
-    @Override
     public void onSessionKilled(String sid) {
         if (!sid.equals(sessionId)) return;
         isSessionRunning = false;

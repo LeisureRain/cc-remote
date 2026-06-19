@@ -45,7 +45,6 @@ public class ClawForegroundService extends Service {
     private final CopyOnWriteArrayList<ChatCallback> callbacks = new CopyOnWriteArrayList<>();
 
     public interface ChatCallback {
-        void onResponse(String sessionId, String text);
         void onSessionKilled(String sessionId);
         void onSessionExited(String sessionId, int exitCode);
     }
@@ -190,12 +189,12 @@ public class ClawForegroundService extends Service {
             case "session_response": {
                 String text = data.has("data") ? data.get("data").getAsString() : "";
                 if (text.isEmpty()) break;
-                for (ChatCallback cb : callbacks) cb.onResponse(sessionId, text);
+                // UI rendering is handled by TerminalActivity's own message
+                // listener (always registered). The service only decides
+                // whether a background notification is needed.
                 if (callbacks.isEmpty()) {
                     showReplyNotification(text);
                 } else {
-                    // Message was delivered to the visible activity —
-                    // cancel any stale notification for this session.
                     cancelReplyNotification();
                 }
                 break;
