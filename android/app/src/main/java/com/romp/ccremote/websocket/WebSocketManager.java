@@ -93,8 +93,13 @@ public class WebSocketManager {
 
     /**
      * Connect to the server. Call this from UI thread.
+     * User-initiated connect — resets the reconnect backoff counter.
      */
     public void connect() {
+        connectInternal(true);
+    }
+
+    private void connectInternal(boolean resetAttempts) {
         if (isConnecting || isConnected) {
             Log.d(TAG, "Already connected or connecting, skipping");
             return;
@@ -112,7 +117,10 @@ public class WebSocketManager {
 
         isConnecting = true;
         shouldReconnect = true;
-        reconnectAttempts = 0;
+        // Only reset the backoff counter for an explicit (user-initiated)
+        // connect. Auto-reconnects must NOT reset it, otherwise the backoff
+        // and MAX_RECONNECT_ATTEMPTS limit are defeated and we loop forever.
+        if (resetAttempts) reconnectAttempts = 0;
 
         String url = PreferencesHelper.getWebSocketUrl();
         Log.d(TAG, "Connecting to " + url);
@@ -235,7 +243,7 @@ public class WebSocketManager {
 
         mainHandler.postDelayed(() -> {
             if (!isConnected && shouldReconnect) {
-                connect();
+                connectInternal(false);
             }
         }, delay);
     }
