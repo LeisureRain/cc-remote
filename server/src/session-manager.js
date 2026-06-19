@@ -14,19 +14,17 @@ class SessionManager {
   constructor() {
     /** @type {Map<string, ClaudeSession>} */
     this.sessions = new Map();
-
-    // Max output buffer lines to keep per session
-    this.maxBufferLines = 5000;
   }
 
   /**
    * Create a new Claude Code session
    * @param {string} directory - Working directory for Claude Code
+   * @param {object} [options] - { permissionMode }
    * @returns {ClaudeSession}
    */
-  createSession(directory) {
+  createSession(directory, options = {}) {
     const id = uuidv4();
-    const session = new ClaudeSession(id, directory, this.maxBufferLines);
+    const session = new ClaudeSession(id, directory, options);
 
     session.on('exit', (code) => {
       console.log(`[SessionManager] Session ${id} exited with code ${code}`);

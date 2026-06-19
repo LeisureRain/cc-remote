@@ -1,125 +1,31 @@
 /**
- * Claude Session — wraps a Claude Code process via node-pty.
+ * Claude Session — wraps ONE persistent Claude Code process per session.
  *
- * Supports dual output modes:
- *   - Interactive (Web / xterm.js): PTY streaming
- *   - Chat (Android): claude -p --continue per message
+ * The process runs in headless stream-json mode:
+ *   claude -p --input-format stream-json --output-format stream-json \
+ *          --include-partial-messages --verbose --session-id <id>
+ *
+ * User messages are written to stdin as newline-delimited JSON (no shell
+ * escaping), and the NDJSON event stream on stdout is parsed into:
+ *   - session_delta   (streaming text chunks, P2)
+ *   - session_response (final turn text — same shape as before, so existing
+ *                       clients keep working)
+ * The single process preserves full conversation context across turns.
  */
 
 const { EventEmitter } = require('events');
-const { spawn } = require('node-pty');
-const { spawn: spawnProcess } = require('child_process');
-const os = require('os');
+const { spawn } = require('child_process');
+const readline = require('readline');
 
-const DEBOUNCE_MS = 1500;
-
-// Max chat history entries retained per session (user+claude messages).
-// Bounds memory growth and the size of the chat_history sent on reconnect.
+// Max chat history entries retained per session (bounds memory + reconnect payload).
 const MAX_CHAT_HISTORY = 400;
 
-// ============================================================
-// ANSI stripper (regex + rolling buffer)
-// ============================================================
-const ANSI_RE = /\x1b\[[\x20-\x3f]*[\x40-\x7e]|\x1b\].*?(?:\x07|\x1b\\)|\x1b[^\[\]\x1b]/g;
-
-class AnsiStripper {
-  constructor() { this._pending = ''; }
-  feed(chunk) {
-    this._pending += chunk;
-    // Find the last raw ESC position BEFORE stripping, so we can
-    // hold back incomplete escape sequences for the next chunk.
-    const lastEsc = this._pending.lastIndexOf('\x1b');
-    const cleaned = this._pending.replace(ANSI_RE, '');
-    if (lastEsc >= 0) {
-      // Only output text before the last ESC; everything from ESC onward
-      // may be part of an incomplete sequence — keep it in _pending.
-      const out = cleaned.substring(0, lastEsc);
-      this._pending = this._pending.substring(lastEsc);
-      return out;
-    }
-    this._pending = '';
-    return cleaned;
-  }
-  flush() { const o = this._pending.replace(/\x1b/g, ''); this._pending = ''; return o; }
-}
-
-// ============================================================
-// Chat-output cleaning utilities
-// ============================================================
-
-/**
- * Collapse terminal \r-overwrites into final visible text.
- * For each line (splits on \n), keep only the text after the last \r.
- * This turns "✻ Baked 2s\r✻ Baked 8s\rDone" into just "Done".
- */
-function collapseOverwrites(text) {
-  return text.split('\n').map(line => {
-    const lastCR = line.lastIndexOf('\r');
-    return lastCR >= 0 ? line.substring(lastCR + 1) : line;
-  }).join('\n');
-}
-
-/**
- * Remove terminal UI cruft AND thinking-process text from chat output.
- * The goal is to keep only the final conversational response — no
- * thinking steps, token counts, tool-run markers, progress bars, or
- * box-drawing art.
- */
-function cleanForChat(text) {
-  const out = [];
-  let blanks = 0;
-  const lines = text.split('\n');
-  for (const line of lines) {
-    const t = line.trim();
-    // Track blank runs (collapsed later)
-    if (!t) { blanks++; if (blanks <= 2) out.push(''); continue; }
-    blanks = 0;
-
-    // ---- Strip UI / drawing lines ----
-    const draw = t.match(/[─═━╌╍╴╶╼╾▔▁▂▃▄▅▆▇█▉▊▋▌▍▎▏▐░▒▓]/g);
-    if (draw && draw.length > t.length * 0.5) continue;
-    const dashes = t.match(/[-─]/g);
-    if (dashes && dashes.length > 20 && dashes.length > t.length * 0.7) continue;
-
-    // ---- Strip progress / timing lines ----
-    if (/^(✻|\s*(Baked|Churned|Thinking|Checking|Reading|Writing|Analyzing|Indexing|Processing|Loading|Scanning|Computing|Waiting|Retrying|Fetching|Searching|Running|Executing|Collecting|Building|Compiling|Resolving|Downloading|Installing)[\s.]+(for\s+)?(\d+[ms]|…+))/i.test(t)) continue;
-    // Duration: 3.2s  |  Tokens: 1234 / Budget: 200k  |  Cost: $0.05
-    if (/^(Duration|Tokens?|Cost|Budget|In):?\s/i.test(t)) continue;
-    // [Tokens: …]  [Cost: …] bracketed variants
-    if (/^\[(Tokens?|Cost|Budget|Duration)[:\]]/i.test(t)) continue;
-
-    // ---- Strip Claude Code internal markers ----
-    // ⏺ tool-execution, ⎿ tool-result, ● context markers
-    if (/^[⏺⎿●○◉◎▶▸]/u.test(t)) continue;
-    // Numbered tool steps: "1. Reading…"  "2. Checking…"
-    if (/^\d+\. (Reading|Checking|Looking|Searching|Found|Writing|Running|Analyzing|Processing|Loading|Opening)/.test(t)) continue;
-
-    // ---- Strip thinking-process boilerplate ----
-    // Only strip explicitly Claude-internal reflection markers,
-    // NOT natural conversational openings (those are real responses).
-    if (/^\[\s*(Thinking|Reflection|Reasoning|Planning)\s*\]/.test(t)) continue;
-
-    // ---- Strip tool-output artifacts ----
-    // File-list bullets: "    •   " "    -   " "     *   "
-    if (/^\s{2,}[•·●-]\s/.test(t)) continue;
-    // Path-like patterns (starts with / or drive letter)
-    if (/^(├|\+--|\|--|└)/.test(t)) continue;
-
-    // ---- Keep everything else (the response) ----
-    out.push(t);
-  }
-  return out.join('\n');
-}
-
-// ============================================================
-// ClaudeSession
-// ============================================================
 class ClaudeSession extends EventEmitter {
-  constructor(id, directory, maxBufferLines = 5000) {
+  constructor(id, directory, options = {}) {
     super();
-    this.id = id;
+    this.id = id;                 // also used as the claude --session-id (UUID)
     this.directory = directory;
-    this.maxBufferLines = maxBufferLines;
+    this.permissionMode = options.permissionMode || '';
     this.createdAt = new Date();
     this.isRunning = false;
     this.exitCode = null;
@@ -127,34 +33,26 @@ class ClaudeSession extends EventEmitter {
     /** @type {Set<WebSocket>} */
     this.clients = new Set();
 
-    /** @type {string[]} — raw output for xterm.js replay */
-    this.outputBuffer = [];
-
-    this.ansiStripper = new AnsiStripper();
-
-    /** @type {string[]} — accumulated clean chat output */
-    this._chatBuffer = [];
-    this._debounceTimer = null;
-    /** Cached last flushed chat response */
-    this._lastChatResponse = null;
-
-    // Chat mode state
-    this._chatBusy = false;
-    /** @type {string|null} — user message currently being processed */
-    this._chatPending = null;
-    /** @type {import('child_process').ChildProcess|null} — active claude -p child */
-    this._chatChild = null;
-
     /**
      * Chat history — persisted across client reconnections.
      * @type {Array<{role: 'user'|'claude', text: string, ts: number}>}
      */
     this._chatHistory = [];
 
-    this._isWin = os.platform() === 'win32';
+    // Per-turn state
+    this._chatBusy = false;
+    this._chatPending = null;     // user message currently being processed
+    this._turnText = '';          // accumulated assistant text for the active turn
+    this._streaming = false;
 
-    /** @type {import('node-pty').IPty | null} */
-    this.ptyProcess = null;
+    // claude session metadata (from system/init)
+    this.claudeSessionId = null;
+    this.model = null;
+
+    /** @type {import('child_process').ChildProcess|null} */
+    this.child = null;
+    this._stdoutRl = null;
+    this._resume = false;         // first launch creates the session; restarts resume it
 
     this._start();
   }
@@ -164,41 +62,55 @@ class ClaudeSession extends EventEmitter {
   // ==========================================================
 
   _start() {
+    const parts = [
+      'claude', '-p',
+      '--input-format', 'stream-json',
+      '--output-format', 'stream-json',
+      '--include-partial-messages',
+      '--verbose',
+    ];
+    if (this._resume) parts.push('--resume', this.id);
+    else parts.push('--session-id', this.id);
+    if (this.permissionMode) parts.push('--permission-mode', this.permissionMode);
+    // Single command string + shell:true (rather than an args array) so Windows
+    // resolves the `claude` launcher and we avoid Node's DEP0190 warning. Every
+    // token here is fixed/trusted — the user prompt travels via stdin, never the
+    // command line — so there is nothing for the shell to mis-parse or inject.
+    const cmd = parts.join(' ');
+
     try {
-      const shellCmd = this._isWin ? 'cmd.exe' : 'bash';
-      this.ptyProcess = spawn(shellCmd, [], {
-        name: 'xterm-256color',
-        cols: 120, rows: 40,
+      this.child = spawn(cmd, {
         cwd: this.directory,
-        env: Object.assign({}, process.env, {
-          TERM: 'xterm-256color',
-          FORCE_COLOR: '1',
-          CLAUDE_CODE_USE_PTY: '1',
-        }),
+        shell: true,
+        env: Object.assign({}, process.env, { FORCE_COLOR: '0', NO_COLOR: '1' }),
       });
 
       this.isRunning = true;
-      console.log(`[ClaudeSession ${this.id}] PID ${this.ptyProcess.pid}`);
+      console.log(`[ClaudeSession ${this.id}] PID ${this.child.pid} (${this._resume ? 'resume' : 'new'})`);
 
-      this.ptyProcess.onData(d => this._onOutput(d));
-      this.ptyProcess.onExit(({ exitCode }) => {
-        this.isRunning = false;
-        this.exitCode = exitCode;
-        console.log(`[ClaudeSession ${this.id}] Exited ${exitCode}`);
-        this._flushChat();
-        this._broadcast({ type: 'session_exited', session_id: this.id, exit_code: exitCode });
-        this.emit('exit', exitCode);
+      this._stdoutRl = readline.createInterface({ input: this.child.stdout });
+      this._stdoutRl.on('line', (line) => this._onLine(line));
+
+      this.child.stderr.on('data', (d) => {
+        const s = d.toString().trim();
+        if (s) console.error(`[ClaudeSession ${this.id}] stderr: ${s.substring(0, 500)}`);
       });
 
-      setTimeout(() => {
-        if (!this.ptyProcess || !this.isRunning) return;
-        if (this._isWin) {
-          this.ptyProcess.write('chcp 65001 >nul\r\n');
-          setTimeout(() => { if (this.ptyProcess && this.isRunning) this.ptyProcess.write('claude\r\n'); }, 500);
-        } else {
-          this.ptyProcess.write('claude\n');
-        }
-      }, 1000);
+      this.child.on('error', (err) => {
+        this.isRunning = false;
+        console.error(`[ClaudeSession ${this.id}] spawn error:`, err.message);
+        this.emit('error', err);
+      });
+
+      this.child.on('exit', (code) => {
+        this.isRunning = false;
+        this.exitCode = code;
+        this._chatBusy = false;
+        this._chatPending = null;
+        console.log(`[ClaudeSession ${this.id}] Exited ${code}`);
+        this._broadcast({ type: 'session_exited', session_id: this.id, exit_code: code });
+        this.emit('exit', code);
+      });
     } catch (err) {
       this.isRunning = false;
       this.emit('error', err);
@@ -207,36 +119,64 @@ class ClaudeSession extends EventEmitter {
   }
 
   // ==========================================================
-  // Output
+  // Output — parse the stream-json NDJSON event stream
   // ==========================================================
 
-  _onOutput(data) {
-    // Store raw for xterm replay
-    this.outputBuffer.push(data);
-    if (this.outputBuffer.length > this.maxBufferLines) {
-      this.outputBuffer = this.outputBuffer.slice(-this.maxBufferLines);
+  _onLine(line) {
+    line = line.trim();
+    if (!line) return;
+    let obj;
+    try { obj = JSON.parse(line); } catch (e) { return; } // ignore non-JSON noise
+
+    switch (obj.type) {
+      case 'system':
+        if (obj.subtype === 'init' && !this.claudeSessionId) {
+          this.claudeSessionId = obj.session_id || null;
+          this.model = obj.model || null;
+          this._broadcast({
+            type: 'session_meta', session_id: this.id,
+            claude_session_id: this.claudeSessionId, model: this.model,
+            tools: obj.tools || [],
+          });
+        }
+        break;
+
+      case 'stream_event': {
+        const ev = obj.event;
+        if (!ev) break;
+        if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta') {
+          const t = ev.delta.text || '';
+          if (t) {
+            this._turnText += t;
+            this._streaming = true;
+            this._onTextDelta(t);
+          }
+        }
+        break;
+      }
+
+      case 'result': {
+        const text = (this._turnText && this._turnText.trim()) || obj.result || '';
+        this._turnText = '';
+        this._streaming = false;
+        this._chatBusy = false;
+        this._chatPending = null;
+        this._pushHistory({ role: 'claude', text, ts: Date.now() });
+        // Keep the historic `session_response` shape so existing clients work.
+        this._broadcast({
+          type: 'session_response', session_id: this.id, data: text,
+          is_error: !!obj.is_error, cost_usd: obj.total_cost_usd, duration_ms: obj.duration_ms,
+        });
+        break;
+      }
     }
-
-    // Stream raw to xterm.js clients
-    this._broadcast({ type: 'session_output', session_id: this.id, data_raw: data });
-
-    // NOTE: chat responses come exclusively from the `claude -p` path in chat()
-    // — see chat(). We deliberately do NOT derive session_response from the
-    // interactive PTY stream here, otherwise the PTY's startup banner and UI
-    // noise would leak into the Android chat as spurious "Claude replied"
-    // messages (and would never be part of _chatHistory).
   }
 
   /**
-   * Flush accumulated chat buffer. Retained for legacy call sites
-   * (write/kill/exit); no longer broadcasts since chat output is sourced
-   * from the claude -p path rather than the PTY stream.
+   * Hook for streaming text chunks. Overridden behavior added in P2; in P1 the
+   * chunks are accumulated only and the full text is delivered on `result`.
    */
-  _flushChat() {
-    clearTimeout(this._debounceTimer);
-    this._debounceTimer = null;
-    this._chatBuffer = [];
-  }
+  _onTextDelta(_text) { /* P2: broadcast session_delta */ }
 
   /** Append a chat-history entry, trimming to MAX_CHAT_HISTORY. */
   _pushHistory(entry) {
@@ -250,118 +190,53 @@ class ClaudeSession extends EventEmitter {
   // Input
   // ==========================================================
 
-  write(text) {
-    if (!this.ptyProcess || !this.isRunning) {
-      console.warn(`[ClaudeSession ${this.id}] write: not running`);
-      return false;
-    }
-
-    // Flush previous Claude response now
-    this._flushChat();
-
-    // Normalise to platform line ending
-    const eol = this._isWin ? '\r\n' : '\n';
-    const normalised = text.replace(/\r\n|\r(?!\n)|\n/g, eol);
-    this.ptyProcess.write(normalised);
-
-    const preview = normalised.length > 80
-      ? normalised.substring(0, 80).replace(/\r/g, '\\r').replace(/\n/g, '\\n') + '...'
-      : normalised.replace(/\r/g, '\\r').replace(/\n/g, '\\n');
-    console.log(`[ClaudeSession ${this.id}] Wrote: ${preview}`);
-    return true;
-  }
-
   /**
-   * Chat mode — run claude -p --continue for clean request/response.
-   * After returning, the response survives client disconnect; reconnecting
-   * clients receive the full chat history (including this message pair).
-   *
-   * @param {string} chatText - user message
-   * @param {(err: Error|null, result: string|null) => void} cb
+   * Send a user message to the persistent claude process via stdin.
+   * @returns {{ok: boolean, error?: string}}
    */
-  chat(chatText, useContinue, cb) {
-    if (this._chatBusy) {
-      cb(new Error('Previous message still processing. Please wait.'));
-      return;
+  sendMessage(text) {
+    const prompt = (text || '').replace(/[\r\n]+$/g, '');
+    if (!prompt.trim()) return { ok: false, error: 'Empty message' };
+    if (!this.isRunning || !this.child || !this.child.stdin.writable) {
+      return { ok: false, error: 'Session is not running' };
     }
-
-    // Default: continue mode enabled
-    if (useContinue === undefined) useContinue = true;
-
-    const prompt = chatText.replace(/[\r\n]+$/g, '').trim();
-    if (!prompt) { cb(null, ''); return; }
+    if (this._chatBusy) {
+      return { ok: false, error: 'Previous message still processing. Please wait.' };
+    }
 
     this._chatBusy = true;
-
-    // Record user message in history immediately
     this._chatPending = prompt;
+    this._turnText = '';
     this._pushHistory({ role: 'user', text: prompt, ts: Date.now() });
 
-    // Send the prompt via stdin rather than interpolating it into the shell
-    // command. This avoids all shell-escaping pitfalls (bash AND cmd.exe
-    // metacharacters like & | < > ^ % ` $), which previously could mangle
-    // prompts or be a command-injection vector. The command itself contains
-    // only fixed flags, so shell:true is safe here.
-    const continueFlag = useContinue ? '--continue' : '';
-    const cmd = `claude -p ${continueFlag}`.replace(/\s+/g, ' ').trim();
-    console.log(`[ClaudeSession ${this.id}] ${cmd} (prompt via stdin, ${prompt.length} chars)`);
-
-    const MAX_OUTPUT = 10 * 1024 * 1024; // 10 MB
-    let stdout = '', stderr = '', done = false;
-
-    const child = spawnProcess(cmd, {
-      shell: true,
-      cwd: this.directory,
-      env: Object.assign({}, process.env, { FORCE_COLOR: '0', NO_COLOR: '1' }),
-    });
-    this._chatChild = child;
-
-    const finish = (error) => {
-      if (done) return;
-      done = true;
+    const envelope = { type: 'user', message: { role: 'user', content: [{ type: 'text', text: prompt }] } };
+    try {
+      this.child.stdin.write(JSON.stringify(envelope) + '\n');
+    } catch (e) {
       this._chatBusy = false;
       this._chatPending = null;
-      this._chatChild = null;
-
-      if (error) {
-        const errMsg = (stderr || '').trim() || error.message;
-        console.error(`[ClaudeSession ${this.id}] claude -p failed: ${errMsg}`);
-        this._pushHistory({ role: 'claude', text: '❌ ' + errMsg, ts: Date.now() });
-        cb(new Error(errMsg));
-        return;
-      }
-
-      const text = (stdout || '').replace(ANSI_RE, '').trim();
-      console.log(`[ClaudeSession ${this.id}] claude -p returned ${stdout.length} chars (${text.length} after ANSI strip)`);
-      this._pushHistory({ role: 'claude', text, ts: Date.now() });
-      this._lastChatResponse = text;
-      cb(null, text);
-    };
-
-    child.stdout.on('data', d => { if (stdout.length < MAX_OUTPUT) stdout += d.toString(); });
-    child.stderr.on('data', d => { if (stderr.length < MAX_OUTPUT) stderr += d.toString(); });
-    child.on('error', err => finish(err));
-    child.on('close', code => finish(code === 0 ? null : new Error(`claude exited with code ${code}`)));
-
-    try {
-      child.stdin.write(prompt);
-      child.stdin.end();
-    } catch (e) { /* stdin may already be closed on spawn error */ }
+      return { ok: false, error: 'Failed to write to claude: ' + e.message };
+    }
+    console.log(`[ClaudeSession ${this.id}] -> message (${prompt.length} chars)`);
+    return { ok: true };
   }
 
   // ==========================================================
   // Client / lifecycle management
   // ==========================================================
 
-  resize(cols, rows) {
-    try { if (this.ptyProcess && this.isRunning) this.ptyProcess.resize(Math.max(40, cols), Math.max(10, rows)); } catch (e) {}
-  }
-
   kill() {
-    clearTimeout(this._debounceTimer);
-    this._flushChat();
-    if (this.ptyProcess) {
-      try { this.ptyProcess.write('\x03'); setTimeout(() => { if (this.ptyProcess && this.isRunning) this.ptyProcess.kill(); }, 1000); } catch (e) {}
+    this.isRunning = false;
+    if (this._stdoutRl) { try { this._stdoutRl.close(); } catch (e) {} }
+    if (this.child && this.child.pid) {
+      if (process.platform === 'win32') {
+        // Kill the whole tree (shell launcher + claude) — child.kill() alone
+        // would only reach the shell on Windows.
+        try { spawn('taskkill', ['/PID', String(this.child.pid), '/T', '/F']); } catch (e) {}
+      } else {
+        try { this.child.stdin.end(); } catch (e) {}
+        try { this.child.kill('SIGTERM'); } catch (e) {}
+      }
     }
     this._broadcast({ type: 'session_killed', session_id: this.id });
     this.clients.clear();
@@ -372,18 +247,16 @@ class ClaudeSession extends EventEmitter {
     console.log(`[ClaudeSession ${this.id}] +client (${this.clients.size})`);
 
     // Send full chat history so the client can rebuild the conversation.
-    // Includes all completed messages + pending state if claude is busy.
     this._sendToClient(ws, {
       type: 'chat_history',
       session_id: this.id,
       entries: this._chatHistory,
-      pending: this._chatPending,  // null | user message currently processing
+      pending: this._chatPending,
     });
 
-    // Raw PTY replay for xterm.js web clients
-    if (this.outputBuffer.length > 0) {
-      const recent = this.outputBuffer.slice(-200).join('');
-      this._sendToClient(ws, { type: 'session_output', session_id: this.id, data_raw: recent, replay: true });
+    // If a turn is streaming right now, send what we have so far.
+    if (this._streaming && this._turnText) {
+      this._sendToClient(ws, { type: 'session_delta', session_id: this.id, text: this._turnText, replay: true });
     }
   }
 
@@ -393,7 +266,7 @@ class ClaudeSession extends EventEmitter {
   }
 
   getClientCount() { return this.clients.size; }
-  getBufferSize() { return this.outputBuffer.length; }
+  getBufferSize() { return this._chatHistory.length; }
 
   _broadcast(msg) {
     const s = JSON.stringify(msg);

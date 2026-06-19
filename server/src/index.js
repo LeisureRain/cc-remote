@@ -28,6 +28,7 @@ function loadConfig() {
     host: '0.0.0.0',
     maxSessions: 20,
     workspace: '',
+    permissionMode: '',
   };
 
   // Load from config file (if present)
@@ -49,11 +50,12 @@ function loadConfig() {
   const host = process.env.HOST || fileConfig.host || defaults.host;
   const maxSessions = parseInt(process.env.MAX_SESSIONS || `${fileConfig.maxSessions || defaults.maxSessions}`, 10);
   const workspace = process.env.WORKSPACE || fileConfig.workspace || defaults.workspace;
+  const permissionMode = process.env.PERMISSION_MODE || fileConfig.permissionMode || defaults.permissionMode;
 
   // Normalize workspace path
   const normalizedWorkspace = workspace ? path.resolve(workspace.trim()) : '';
 
-  return { port, host, maxSessions, workspace: normalizedWorkspace };
+  return { port, host, maxSessions, workspace: normalizedWorkspace, permissionMode };
 }
 
 const CONFIG = loadConfig();
@@ -641,7 +643,7 @@ wss.on('connection', (ws, req) => {
           return;
         }
         try {
-          const session = sessionManager.createSession(directory);
+          const session = sessionManager.createSession(directory, { permissionMode: CONFIG.permissionMode });
           await new Promise(r => setTimeout(r, 1000));
           if (!session.isRunning) {
             sendToClient(ws, { type: 'session_error', session_id: session.id,
@@ -672,14 +674,9 @@ wss.on('connection', (ws, req) => {
         break;
       }
       case 'send_input': {
-        const sid = message.session_id || currentSessionId;
-        if (!sid) { sendToClient(ws, { type: 'error', message: 'Not connected to any session' }); return; }
-        const t = message.text;
-        if (typeof t !== 'string') { sendToClient(ws, { type: 'error', message: 'text is required' }); return; }
-        const s = sessionManager.getSession(sid);
-        if (!s) { sendToClient(ws, { type: 'error', message: `Session ${sid} not found` }); return; }
-        if (!s.isRunning) { sendToClient(ws, { type: 'error', message: 'Session is not running' }); return; }
-        s.write(t);
+        // Retired: interactive PTY input is no longer supported. Sessions are
+        // driven through the stream-json chat path (send_chat).
+        sendToClient(ws, { type: 'error', message: 'send_input is not supported; use send_chat' });
         break;
       }
       case 'send_chat': {
@@ -690,11 +687,10 @@ wss.on('connection', (ws, req) => {
         const s = sessionManager.getSession(sid);
         if (!s) { sendToClient(ws, { type: 'error', message: `Session ${sid} not found` }); return; }
         if (!s.isRunning) { sendToClient(ws, { type: 'error', message: 'Session is not running' }); return; }
-        const useContinue = message.continue !== false;
-        s.chat(t, useContinue, (err, result) => {
-          if (err) { sendToClient(ws, { type: 'error', message: err.message }); }
-          else { sendToClient(ws, { type: 'session_response', session_id: sid, data: result }); }
-        });
+        // Note: the persistent process always continues the conversation, so the
+        // legacy `continue` flag is no longer meaningful.
+        const r = s.sendMessage(t);
+        if (!r.ok) sendToClient(ws, { type: 'error', message: r.error });
         break;
       }
       case 'disconnect_session': {
