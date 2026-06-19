@@ -199,6 +199,7 @@ public class ClawForegroundService extends Service {
             }
             case "session_killed": {
                 for (ChatCallback cb : callbacks) cb.onSessionKilled(sessionId);
+                if (callbacks.isEmpty()) showEventNotification("Session ended (killed)");
                 stopForeground(true);
                 stopSelf();
                 instance = null;
@@ -207,6 +208,7 @@ public class ClawForegroundService extends Service {
             case "session_exited": {
                 int code = data.has("exit_code") ? data.get("exit_code").getAsInt() : -1;
                 for (ChatCallback cb : callbacks) cb.onSessionExited(sessionId, code);
+                if (callbacks.isEmpty()) showEventNotification("Claude exited (code " + code + ")");
                 break;
             }
         }
@@ -251,6 +253,20 @@ public class ClawForegroundService extends Service {
     public void cancelReplyNotification() {
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm != null) nm.cancel(getReplyNotifyId());
+    }
+
+    /** Lifecycle event notification (session killed / Claude exited) when backgrounded. */
+    private void showEventNotification(String body) {
+        Notification notif = new NotificationCompat.Builder(this, REPLY_CHANNEL)
+                .setContentTitle("CC Remote")
+                .setContentText(body)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentIntent(makeTerminalIntent())
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .build();
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) nm.notify(getReplyNotifyId(), notif);
     }
 
     /**
