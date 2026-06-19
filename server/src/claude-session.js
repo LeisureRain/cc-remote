@@ -173,10 +173,13 @@ class ClaudeSession extends EventEmitter {
   }
 
   /**
-   * Hook for streaming text chunks. Overridden behavior added in P2; in P1 the
-   * chunks are accumulated only and the full text is delivered on `result`.
+   * Streaming text chunk → broadcast as session_delta so clients can render
+   * the response incrementally. The final session_response still arrives on
+   * `result` and is the canonical/finalized text.
    */
-  _onTextDelta(_text) { /* P2: broadcast session_delta */ }
+  _onTextDelta(text) {
+    this._broadcast({ type: 'session_delta', session_id: this.id, text });
+  }
 
   /** Append a chat-history entry, trimming to MAX_CHAT_HISTORY. */
   _pushHistory(entry) {
@@ -219,6 +222,53 @@ class ClaudeSession extends EventEmitter {
     }
     console.log(`[ClaudeSession ${this.id}] -> message (${prompt.length} chars)`);
     return { ok: true };
+  }
+
+  /**
+   * Interrupt the in-flight turn. Implemented by restarting the process and
+   * resuming the same session (reliable across platforms; the control-message
+   * interrupt path can replace this later). The partial text seen so far is
+   * finalized so the client's streaming bubble settles.
+   * @returns {{ok: boolean, error?: string}}
+   */
+  interrupt() {
+    if (!this._chatBusy) return { ok: false, error: 'Nothing to interrupt' };
+    const partial = (this._turnText && this._turnText.trim()) || '';
+    this._restart();
+    this._chatBusy = false;
+    this._chatPending = null;
+    this._streaming = false;
+    this._turnText = '';
+    const text = partial ? partial + '\n\n⏹ _(interrupted)_' : '⏹ _(interrupted)_';
+    this._pushHistory({ role: 'claude', text, ts: Date.now() });
+    this._broadcast({ type: 'session_response', session_id: this.id, data: text, interrupted: true });
+    console.log(`[ClaudeSession ${this.id}] interrupted`);
+    return { ok: true };
+  }
+
+  /** Kill the current process (silently) and relaunch it resuming the session. */
+  _restart() {
+    this._resume = true;
+    if (this._stdoutRl) { try { this._stdoutRl.close(); } catch (e) {} this._stdoutRl = null; }
+    const old = this.child;
+    this.child = null;
+    if (old) {
+      // Detach listeners first so the kill doesn't fire our exit handler
+      // (which would tell clients the whole session exited).
+      try {
+        old.removeAllListeners('exit');
+        old.removeAllListeners('error');
+        if (old.stdout) old.stdout.removeAllListeners('data');
+      } catch (e) {}
+      if (old.pid) {
+        if (process.platform === 'win32') {
+          try { spawn('taskkill', ['/PID', String(old.pid), '/T', '/F']); } catch (e) {}
+        } else {
+          try { old.kill('SIGTERM'); } catch (e) {}
+        }
+      }
+    }
+    this._start();
   }
 
   // ==========================================================

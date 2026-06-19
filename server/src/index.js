@@ -473,6 +473,15 @@ wss.on('connection', (ws, req) => {
         if (!r.ok) sendToClient(ws, { type: 'error', message: r.error });
         break;
       }
+      case 'interrupt': {
+        const sid = message.session_id || currentSessionId;
+        if (!sid) { sendToClient(ws, { type: 'error', message: 'No session specified' }); return; }
+        const s = sessionManager.getSession(sid);
+        if (!s) { sendToClient(ws, { type: 'error', message: `Session ${sid} not found` }); return; }
+        const r = s.interrupt();
+        if (!r.ok) sendToClient(ws, { type: 'error', message: r.error });
+        break;
+      }
       case 'disconnect_session': {
         const sid = message.session_id || currentSessionId;
         if (sid) {
