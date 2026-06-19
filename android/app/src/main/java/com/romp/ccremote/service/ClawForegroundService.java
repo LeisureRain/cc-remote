@@ -188,7 +188,13 @@ public class ClawForegroundService extends Service {
                 String text = data.has("data") ? data.get("data").getAsString() : "";
                 if (text.isEmpty()) break;
                 for (ChatCallback cb : callbacks) cb.onResponse(sessionId, text);
-                if (callbacks.isEmpty()) showReplyNotification(text);
+                if (callbacks.isEmpty()) {
+                    showReplyNotification(text);
+                } else {
+                    // Message was delivered to the visible activity —
+                    // cancel any stale notification for this session.
+                    cancelReplyNotification();
+                }
                 break;
             }
             case "session_killed": {
@@ -238,7 +244,21 @@ public class ClawForegroundService extends Service {
                 .build();
 
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (nm != null) nm.notify((int) (System.currentTimeMillis() & 0xFFFF), notif);
+        if (nm != null) nm.notify(getReplyNotifyId(), notif);
+    }
+
+    /** Cancel the reply notification for the current session (message already seen). */
+    public void cancelReplyNotification() {
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) nm.cancel(getReplyNotifyId());
+    }
+
+    /**
+     * Deterministic notification ID tied to the session, so we can
+     * cancel the exact notification that was shown for this session.
+     */
+    private int getReplyNotifyId() {
+        return 1000 + (sessionId != null ? sessionId.hashCode() & 0xFFFF : 0);
     }
 
     /**

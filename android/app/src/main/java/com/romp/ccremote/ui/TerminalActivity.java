@@ -136,6 +136,9 @@ public class TerminalActivity extends AppCompatActivity
         ClawForegroundService svc = ClawForegroundService.getInstance();
         if (svc != null) svc.addCallback(this);
 
+        // Cancel any stale reply notification — user is now watching the chat
+        if (svc != null) svc.cancelReplyNotification();
+
         if (wm.isConnected()) wm.sendConnectSession(sessionId);
     }
 
