@@ -128,8 +128,11 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
                 holder.toggleBtn.setText(msg.showRendered ? "原文" : "渲染");
                 holder.toggleBtn.setVisibility(View.VISIBLE);
                 holder.toggleBtn.setOnClickListener(v -> {
-                    msg.showRendered = !msg.showRendered;
-                    notifyItemChanged(position);
+                    int p = holder.getAdapterPosition();
+                    if (p == RecyclerView.NO_POSITION) return;
+                    ChatMessage m = messages.get(p);
+                    m.showRendered = !m.showRendered;
+                    notifyItemChanged(p);
                 });
             }
         }
