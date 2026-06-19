@@ -216,34 +216,22 @@ class ClaudeSession extends EventEmitter {
     // Stream raw to xterm.js clients
     this._broadcast({ type: 'session_output', session_id: this.id, data_raw: data });
 
-    // Accumulate clean output for chat
-    // Strip ANSI → CRLF→LF → collapse \r-overwrites → filter cruft
-    let clean = this.ansiStripper.feed(data);
-    clean = clean.replace(/\r\n/g, '\n');
-    clean = collapseOverwrites(clean);
-    clean = cleanForChat(clean);
-    if (clean) this._chatBuffer.push(clean);
-
-    // Reset debounce — wait for silence then flush
-    clearTimeout(this._debounceTimer);
-    this._debounceTimer = setTimeout(() => this._flushChat(), DEBOUNCE_MS);
+    // NOTE: chat responses come exclusively from the `claude -p` path in chat()
+    // — see chat(). We deliberately do NOT derive session_response from the
+    // interactive PTY stream here, otherwise the PTY's startup banner and UI
+    // noise would leak into the Android chat as spurious "Claude replied"
+    // messages (and would never be part of _chatHistory).
   }
 
   /**
-   * Flush accumulated chat buffer.
-   * Called on debounce timeout (Claude finished) OR user input (start new round).
+   * Flush accumulated chat buffer. Retained for legacy call sites
+   * (write/kill/exit); no longer broadcasts since chat output is sourced
+   * from the claude -p path rather than the PTY stream.
    */
   _flushChat() {
     clearTimeout(this._debounceTimer);
     this._debounceTimer = null;
-    if (this._chatBuffer.length === 0) return;
-
-    const text = this._chatBuffer.join('').replace(/\n{3,}/g, '\n\n').trim();
     this._chatBuffer = [];
-    if (!text) return;
-
-    this._lastChatResponse = text;
-    this._broadcast({ type: 'session_response', session_id: this.id, data: text });
   }
 
   // ==========================================================
