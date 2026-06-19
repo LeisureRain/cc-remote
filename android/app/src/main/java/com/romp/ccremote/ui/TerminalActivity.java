@@ -281,8 +281,10 @@ public class TerminalActivity extends AppCompatActivity
                     com.google.gson.JsonObject e = entries.get(i).getAsJsonObject();
                     String role = e.get("role").getAsString();
                     String text = e.get("text").getAsString();
+                    long ts = e.has("ts") && !e.get("ts").isJsonNull()
+                            ? e.get("ts").getAsLong() : System.currentTimeMillis();
                     int type = "user".equals(role) ? ChatMessage.TYPE_USER : ChatMessage.TYPE_CLAUDE;
-                    chatAdapter.addMessage(new ChatMessage(type, text));
+                    chatAdapter.addMessage(new ChatMessage(type, text, ts));
                 }
             }
             if (data.has("pending") && !data.get("pending").isJsonNull()) {

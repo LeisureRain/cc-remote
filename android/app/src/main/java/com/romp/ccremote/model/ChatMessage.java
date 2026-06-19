@@ -13,9 +13,13 @@ public class ChatMessage {
     public boolean showRendered = true; // true = render Markdown, false = plain text
 
     public ChatMessage(int type, String text) {
+        this(type, text, System.currentTimeMillis());
+    }
+
+    public ChatMessage(int type, String text, long timestamp) {
         this.type = type;
         this.text = text;
-        this.timestamp = System.currentTimeMillis();
+        this.timestamp = timestamp;
     }
 
     public boolean isUser() { return type == TYPE_USER; }
