@@ -8,7 +8,7 @@
 
 const { EventEmitter } = require('events');
 const { spawn } = require('node-pty');
-const { exec } = require('child_process');
+const { spawn: spawnProcess } = require('child_process');
 const os = require('os');
 
 const DEBOUNCE_MS = 1500;
@@ -297,21 +297,31 @@ class ClaudeSession extends EventEmitter {
     this._chatPending = prompt;
     this._pushHistory({ role: 'user', text: prompt, ts: Date.now() });
 
-    // Use exec (not spawn) so the shell handles argument quoting.
-    // On Windows spawn {'-p', 'hello world'} gets split to two args;
-    // exec 'claude -p "hello world" --continue' preserves it.
-    const safePrompt = prompt.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/`/g, '\\`').replace(/\$/g, '\\$');
+    // Send the prompt via stdin rather than interpolating it into the shell
+    // command. This avoids all shell-escaping pitfalls (bash AND cmd.exe
+    // metacharacters like & | < > ^ % ` $), which previously could mangle
+    // prompts or be a command-injection vector. The command itself contains
+    // only fixed flags, so shell:true is safe here.
     const continueFlag = useContinue ? '--continue' : '';
-    const cmd = `claude -p "${safePrompt}" ${continueFlag}`.replace(/\s+/g, ' ').trim();
-    console.log(`[ClaudeSession ${this.id}] ${cmd.substring(0, 200)}`);
+    const cmd = `claude -p ${continueFlag}`.replace(/\s+/g, ' ').trim();
+    console.log(`[ClaudeSession ${this.id}] ${cmd} (prompt via stdin, ${prompt.length} chars)`);
 
-    exec(cmd, {
+    const MAX_OUTPUT = 10 * 1024 * 1024; // 10 MB
+    let stdout = '', stderr = '', done = false;
+
+    const child = spawnProcess(cmd, {
+      shell: true,
       cwd: this.directory,
       env: Object.assign({}, process.env, { FORCE_COLOR: '0', NO_COLOR: '1' }),
-      maxBuffer: 10 * 1024 * 1024, // 10 MB
-    }, (error, stdout, stderr) => {
+    });
+    this._chatChild = child;
+
+    const finish = (error) => {
+      if (done) return;
+      done = true;
       this._chatBusy = false;
       this._chatPending = null;
+      this._chatChild = null;
 
       if (error) {
         const errMsg = (stderr || '').trim() || error.message;
@@ -321,14 +331,22 @@ class ClaudeSession extends EventEmitter {
         return;
       }
 
-      const raw = stdout || '';
-      const text = raw.replace(ANSI_RE, '').trim();
-      console.log(`[ClaudeSession ${this.id}] claude -p returned ${raw.length} chars (${text.length} after ANSI strip)`);
-
+      const text = (stdout || '').replace(ANSI_RE, '').trim();
+      console.log(`[ClaudeSession ${this.id}] claude -p returned ${stdout.length} chars (${text.length} after ANSI strip)`);
       this._pushHistory({ role: 'claude', text, ts: Date.now() });
       this._lastChatResponse = text;
       cb(null, text);
-    });
+    };
+
+    child.stdout.on('data', d => { if (stdout.length < MAX_OUTPUT) stdout += d.toString(); });
+    child.stderr.on('data', d => { if (stderr.length < MAX_OUTPUT) stderr += d.toString(); });
+    child.on('error', err => finish(err));
+    child.on('close', code => finish(code === 0 ? null : new Error(`claude exited with code ${code}`)));
+
+    try {
+      child.stdin.write(prompt);
+      child.stdin.end();
+    } catch (e) { /* stdin may already be closed on spawn error */ }
   }
 
   // ==========================================================
