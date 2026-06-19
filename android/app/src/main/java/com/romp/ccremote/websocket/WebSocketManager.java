@@ -9,6 +9,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
+import com.romp.ccremote.model.ProfileInfo;
 import com.romp.ccremote.model.SessionInfo;
 import com.romp.ccremote.util.PreferencesHelper;
 
@@ -57,6 +58,7 @@ public class WebSocketManager {
     private final List<SessionListListener> sessionListListeners = new ArrayList<>();
     private final List<ServerInfoListener> serverInfoListeners = new ArrayList<>();
     private final List<DirectoryListListener> directoryListListeners = new ArrayList<>();
+    private final List<ProfileListListener> profileListListeners = new ArrayList<>();
 
     private WebSocketManager() {
         this.client = new OkHttpClient.Builder()
@@ -257,6 +259,9 @@ public class WebSocketManager {
                 case "directory_list":
                     handleDirectoryList(msg);
                     return;
+                case "profile_list":
+                    handleProfileList(msg);
+                    return;
                 default:
                     break;
             }
@@ -316,6 +321,19 @@ public class WebSocketManager {
             notifyDirectoryList(dirPath, parent, entries);
         } catch (Exception e) {
             Log.e(TAG, "Error parsing directory list: " + e.getMessage());
+        }
+    }
+
+    private void handleProfileList(JsonObject msg) {
+        try {
+            JsonArray arr = msg.getAsJsonArray("profiles");
+            Type listType = new TypeToken<List<ProfileInfo>>(){}.getType();
+            List<ProfileInfo> profiles = gson.fromJson(arr, listType);
+            String active = msg.has("active") ? msg.get("active").getAsString() : "";
+            notifyProfileList(profiles, active);
+        } catch (Exception e) {
+            Log.e(TAG, "Error parsing profile list: " + e.getMessage());
+            notifyMessage("profile_list", msg);
         }
     }
 
@@ -403,6 +421,43 @@ public class WebSocketManager {
         return send(gson.toJson(msg));
     }
 
+    // — Profile send methods —
+
+    public boolean sendListProfiles() {
+        return send("{\"type\":\"list_profiles\"}");
+    }
+
+    public boolean sendCreateProfile(String name, JsonObject content) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "create_profile");
+        msg.addProperty("name", name);
+        msg.add("content", content);
+        return send(gson.toJson(msg));
+    }
+
+    public boolean sendUpdateProfile(String id, String name, JsonObject content) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "update_profile");
+        msg.addProperty("id", id);
+        if (name != null) msg.addProperty("name", name);
+        if (content != null) msg.add("content", content);
+        return send(gson.toJson(msg));
+    }
+
+    public boolean sendDeleteProfile(String id) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "delete_profile");
+        msg.addProperty("id", id);
+        return send(gson.toJson(msg));
+    }
+
+    public boolean sendSwitchProfile(String id) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "switch_profile");
+        msg.addProperty("id", id);
+        return send(gson.toJson(msg));
+    }
+
     // ============================================================
     // Server info accessors
     // ============================================================
@@ -463,6 +518,10 @@ public class WebSocketManager {
 
     public interface DirectoryListListener {
         void onDirectoryList(String path, String parent, List<DirectoryEntry> entries);
+    }
+
+    public interface ProfileListListener {
+        void onProfileList(List<ProfileInfo> profiles, String activeId);
     }
 
     public void addMessageListener(MessageListener listener) {
@@ -535,6 +594,20 @@ public class WebSocketManager {
         }
     }
 
+    public void addProfileListListener(ProfileListListener listener) {
+        synchronized (profileListListeners) {
+            if (!profileListListeners.contains(listener)) {
+                profileListListeners.add(listener);
+            }
+        }
+    }
+
+    public void removeProfileListListener(ProfileListListener listener) {
+        synchronized (profileListListeners) {
+            profileListListeners.remove(listener);
+        }
+    }
+
     private void notifyMessage(String type, JsonObject data) {
         mainHandler.post(() -> {
             synchronized (messageListeners) {
@@ -581,6 +654,16 @@ public class WebSocketManager {
             synchronized (directoryListListeners) {
                 for (DirectoryListListener listener : new ArrayList<>(directoryListListeners)) {
                     listener.onDirectoryList(path, parent, entries);
+                }
+            }
+        });
+    }
+
+    private void notifyProfileList(List<ProfileInfo> profiles, String activeId) {
+        mainHandler.post(() -> {
+            synchronized (profileListListeners) {
+                for (ProfileListListener listener : new ArrayList<>(profileListListeners)) {
+                    listener.onProfileList(profiles, activeId);
                 }
             }
         });

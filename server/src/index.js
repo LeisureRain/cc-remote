@@ -110,6 +110,58 @@ function checkAuth(req) {
   return getToken(req) === AUTH_TOKEN;
 }
 
+// ============================================================
+// Profile management — profiles stored in server/profiles/
+// ============================================================
+const PROFILES_DIR = path.join(__dirname, '..', 'profiles');
+const PROFILES_INDEX = path.join(PROFILES_DIR, 'index.json');
+
+function ensureProfilesDir() {
+  if (!fs.existsSync(PROFILES_DIR)) {
+    fs.mkdirSync(PROFILES_DIR, { recursive: true });
+    // Bootstrap default index
+    const idx = { profiles: [], active: '' };
+    fs.writeFileSync(PROFILES_INDEX, JSON.stringify(idx, null, 2), 'utf8');
+    // Bootstrap default profile
+    const def = { id: 'default', name: 'Default', content: {} };
+    fs.writeFileSync(path.join(PROFILES_DIR, 'default.json'), JSON.stringify(def, null, 2), 'utf8');
+    idx.profiles.push({ id: 'default', name: 'Default' });
+    idx.active = 'default';
+    fs.writeFileSync(PROFILES_INDEX, JSON.stringify(idx, null, 2), 'utf8');
+    console.log('[Profiles] Initialized profiles directory with Default profile');
+    return idx;
+  }
+  return null;
+}
+
+function readProfileIndex() {
+  try {
+    const raw = fs.readFileSync(PROFILES_INDEX, 'utf8');
+    return JSON.parse(raw);
+  } catch (e) {
+    const idx = ensureProfilesDir();
+    return idx || { profiles: [], active: '' };
+  }
+}
+
+function writeProfileIndex(idx) {
+  fs.writeFileSync(PROFILES_INDEX, JSON.stringify(idx, null, 2), 'utf8');
+}
+
+function readProfileFile(id) {
+  const filePath = path.join(PROFILES_DIR, id + '.json');
+  const raw = fs.readFileSync(filePath, 'utf8');
+  return JSON.parse(raw);
+}
+
+function writeProfileFile(id, data) {
+  fs.writeFileSync(path.join(PROFILES_DIR, id + '.json'), JSON.stringify(data, null, 2), 'utf8');
+}
+
+function generateProfileId() {
+  return crypto.randomBytes(4).toString('hex');
+}
+
 function sendUnauth(res) {
   res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' });
   res.end(`<!DOCTYPE html>
@@ -637,6 +689,97 @@ wss.on('connection', (ws, req) => {
         }
         break;
       }
+
+      // — Profile management —
+
+      case 'list_profiles': {
+        const idx = readProfileIndex();
+        sendToClient(ws, { type: 'profile_list', profiles: idx.profiles, active: idx.active || '' });
+        break;
+      }
+
+      case 'create_profile': {
+        const pName = message.name;
+        if (!pName || typeof pName !== 'string' || !pName.trim()) {
+          sendToClient(ws, { type: 'error', message: 'Profile name is required' });
+          return;
+        }
+        const ci = readProfileIndex();
+        const trimmed = pName.trim();
+        if (ci.profiles.some(p => p.name === trimmed)) {
+          sendToClient(ws, { type: 'error', message: 'A profile with that name already exists' });
+          return;
+        }
+        const pid = generateProfileId();
+        const profile = { id: pid, name: trimmed, content: message.content || {} };
+        writeProfileFile(pid, profile);
+        ci.profiles.push({ id: pid, name: trimmed });
+        writeProfileIndex(ci);
+        sendToClient(ws, { type: 'profile_created', profile: { id: pid, name: trimmed } });
+        break;
+      }
+
+      case 'update_profile': {
+        const upId = message.id;
+        if (!upId) { sendToClient(ws, { type: 'error', message: 'Profile ID is required' }); return; }
+        const ui = readProfileIndex();
+        const uIdx = ui.profiles.findIndex(p => p.id === upId);
+        if (uIdx === -1) { sendToClient(ws, { type: 'error', message: 'Profile not found' }); return; }
+        if (message.name) {
+          const nTrimmed = message.name.trim();
+          if (ui.profiles.some((p, i) => i !== uIdx && p.name === nTrimmed)) {
+            sendToClient(ws, { type: 'error', message: 'A profile with that name already exists' });
+            return;
+          }
+          ui.profiles[uIdx].name = nTrimmed;
+        }
+        const upFile = readProfileFile(upId);
+        if (message.name) upFile.name = ui.profiles[uIdx].name;
+        if (message.content) upFile.content = message.content;
+        writeProfileFile(upId, upFile);
+        writeProfileIndex(ui);
+        sendToClient(ws, { type: 'profile_updated', profile: { id: upId, name: ui.profiles[uIdx].name } });
+        break;
+      }
+
+      case 'delete_profile': {
+        const dId = message.id;
+        if (!dId) { sendToClient(ws, { type: 'error', message: 'Profile ID is required' }); return; }
+        const di = readProfileIndex();
+        const dIdx = di.profiles.findIndex(p => p.id === dId);
+        if (dIdx === -1) { sendToClient(ws, { type: 'error', message: 'Profile not found' }); return; }
+        if (di.active === dId) {
+          sendToClient(ws, { type: 'error', message: 'Cannot delete the active profile. Switch to another profile first.' });
+          return;
+        }
+        di.profiles.splice(dIdx, 1);
+        writeProfileIndex(di);
+        try { fs.unlinkSync(path.join(PROFILES_DIR, dId + '.json')); } catch (_) { /* ignore */ }
+        sendToClient(ws, { type: 'profile_deleted', id: dId });
+        break;
+      }
+
+      case 'switch_profile': {
+        const sId = message.id;
+        if (!sId) { sendToClient(ws, { type: 'error', message: 'Profile ID is required' }); return; }
+        const si = readProfileIndex();
+        const sIdx = si.profiles.findIndex(p => p.id === sId);
+        if (sIdx === -1) { sendToClient(ws, { type: 'error', message: 'Profile not found' }); return; }
+        const sProfile = readProfileFile(sId);
+        const claudeDir = path.join(os.homedir(), '.claude');
+        const settingsPath = path.join(claudeDir, 'settings.json');
+        try {
+          if (!fs.existsSync(claudeDir)) fs.mkdirSync(claudeDir, { recursive: true });
+          fs.writeFileSync(settingsPath, JSON.stringify(sProfile.content, null, 2), 'utf8');
+          si.active = sId;
+          writeProfileIndex(si);
+          sendToClient(ws, { type: 'profile_switched', id: sId, name: si.profiles[sIdx].name });
+        } catch (e) {
+          sendToClient(ws, { type: 'error', message: 'Failed to switch profile: ' + e.message });
+        }
+        break;
+      }
+
       case 'ping': sendToClient(ws, { type: 'pong' }); break;
       default: sendToClient(ws, { type: 'error', message: `Unknown message type: ${type}` }); break;
     }

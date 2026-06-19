@@ -22,7 +22,9 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.romp.ccremote.R;
+import com.romp.ccremote.model.ProfileInfo;
 import com.romp.ccremote.model.SessionInfo;
 import com.romp.ccremote.util.PreferencesHelper;
 import com.romp.ccremote.websocket.WebSocketManager;
@@ -41,6 +43,11 @@ public class MainActivity extends AppCompatActivity {
     private View statusDot;
     private TextView statusText;
     private TextView statusServer;
+    private TextView statusProfile;
+
+    // Profile cache (updated by WebSocket listener)
+    private List<ProfileInfo> cachedProfiles = new ArrayList<>();
+    private String cachedActiveId = "";
 
     // Server info from last server_info response
     private String serverOs = null;
@@ -51,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
     private final WebSocketManager.SessionListListener sessionListListener = this::onSessionList;
     private final WebSocketManager.ConnectionListener connectionListener = this::onConnectionChanged;
     private final WebSocketManager.ServerInfoListener serverInfoListener = this::onServerInfo;
+    private final WebSocketManager.ProfileListListener profileListListener = this::onProfileList;
 
     private final WebSocketManager.MessageListener messageListener = (type, data) -> {
         // Auto-refresh session list when a session is created or killed
@@ -88,6 +96,8 @@ public class MainActivity extends AppCompatActivity {
         statusDot = findViewById(R.id.status_dot);
         statusText = findViewById(R.id.status_text);
         statusServer = findViewById(R.id.status_server);
+        statusProfile = findViewById(R.id.status_profile);
+        statusProfile.setOnClickListener(v -> showProfileDialog());
 
         swipeRefresh = findViewById(R.id.swipe_refresh);
         swipeRefresh.setOnRefreshListener(this::refreshSessions);
@@ -114,6 +124,7 @@ public class MainActivity extends AppCompatActivity {
         wsManager.addConnectionListener(connectionListener);
         wsManager.addServerInfoListener(serverInfoListener);
         wsManager.addMessageListener(messageListener);
+        wsManager.addProfileListListener(profileListListener);
 
         // Try to connect if not connected
         if (!wsManager.isConnected()) {
@@ -122,6 +133,7 @@ public class MainActivity extends AppCompatActivity {
             refreshSessions();
             // Request server info to have OS-aware path prompts
             wsManager.sendServerInfo();
+            wsManager.sendListProfiles();
         }
 
         // Refresh cached server info from WebSocketManager
@@ -142,6 +154,7 @@ public class MainActivity extends AppCompatActivity {
         wsManager.removeConnectionListener(connectionListener);
         wsManager.removeServerInfoListener(serverInfoListener);
         wsManager.removeMessageListener(messageListener);
+        wsManager.removeProfileListListener(profileListListener);
     }
 
     private void onSessionList(List<SessionInfo> sessions) {
@@ -165,6 +178,7 @@ public class MainActivity extends AppCompatActivity {
             if (connected) {
                 refreshSessions();
                 wsManager.sendServerInfo();
+                wsManager.sendListProfiles();
                 serverWorkspace = wsManager.getServerWorkspace();
             }
         });
@@ -193,6 +207,25 @@ public class MainActivity extends AppCompatActivity {
             serverInfo = "not configured";
         }
         statusServer.setText(serverInfo);
+    }
+
+    private void onProfileList(List<ProfileInfo> profiles, String activeId) {
+        cachedProfiles = profiles != null ? profiles : new ArrayList<>();
+        cachedActiveId = activeId != null ? activeId : "";
+        runOnUiThread(this::updateProfileStatusBar);
+    }
+
+    private void updateProfileStatusBar() {
+        // Find the active profile name from cache
+        String name = "Default";
+        for (ProfileInfo p : cachedProfiles) {
+            if (p.id.equals(cachedActiveId)) {
+                name = p.name;
+                break;
+            }
+        }
+        statusProfile.setText("[" + name + "]");
+        statusProfile.setVisibility(View.VISIBLE);
     }
 
     private void refreshSessions() {
@@ -680,6 +713,255 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle("About")
                 .setMessage(message)
                 .setPositiveButton("OK", null)
+                .create()
+                .show();
+    }
+
+    // ============================================================
+    // Profile management dialog
+    // ============================================================
+
+    private void showProfileDialog() {
+        if (!wsManager.isConnected()) {
+            Toast.makeText(this, "Not connected to server", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        final int padH = (int) (12 * getResources().getDisplayMetrics().density);
+        final int padV = (int) (8 * getResources().getDisplayMetrics().density);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(padH, padV, padH, padV);
+        root.setBackgroundColor(0xFF161B22);
+
+        // RadioGroup of profiles
+        final android.widget.RadioGroup radioGroup = new android.widget.RadioGroup(this);
+        radioGroup.setPadding(0, 0, 0, padV);
+
+        for (int i = 0; i < cachedProfiles.size(); i++) {
+            ProfileInfo p = cachedProfiles.get(i);
+            android.widget.RadioButton rb = new android.widget.RadioButton(this);
+            rb.setText(p.name);
+            rb.setTextColor(0xFFE0E0E0);
+            rb.setId(i);
+            if (p.id.equals(cachedActiveId)) {
+                rb.setChecked(true);
+            }
+            radioGroup.addView(rb);
+        }
+        root.addView(radioGroup);
+
+        // Action buttons row
+        LinearLayout btnRow = new LinearLayout(this);
+        btnRow.setOrientation(LinearLayout.HORIZONTAL);
+        btnRow.setPadding(0, padV, 0, 0);
+
+        String[] labels = {"Switch", "Create", "Rename", "Delete"};
+        int[] colors = {0xFF51CF66, 0xFF74C0FC, 0xFFFFD43B, 0xFFFF6B6B};
+
+        for (int i = 0; i < labels.length; i++) {
+            TextView btn = new TextView(this);
+            btn.setText(labels[i]);
+            btn.setTextColor(colors[i]);
+            btn.setTextSize(13);
+            btn.setGravity(Gravity.CENTER);
+            btn.setBackgroundResource(R.drawable.input_bg);
+            btn.setPadding(padH, padV / 2, padH, padV / 2);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            lp.setMargins(i > 0 ? 4 : 0, 0, 0, 0);
+            btn.setLayoutParams(lp);
+
+            final int fi = i;
+            btn.setOnClickListener(v -> {
+                int checkedId = radioGroup.getCheckedRadioButtonId();
+                if (checkedId < 0 || checkedId >= cachedProfiles.size()) return;
+                ProfileInfo selected = cachedProfiles.get(checkedId);
+
+                if (fi == 0) { // Switch
+                    wsManager.sendSwitchProfile(selected.id);
+                    // Refresh profile list on next response
+                    wsManager.sendListProfiles();
+                } else if (fi == 1) { // Create
+                    showCreateProfileDialog();
+                } else if (fi == 2) { // Rename
+                    showRenameProfileDialog(selected);
+                } else if (fi == 3) { // Delete
+                    confirmDeleteProfile(selected);
+                }
+            });
+            btnRow.addView(btn);
+        }
+        root.addView(btnRow);
+
+        // Custom title
+        TextView titleView = new TextView(this);
+        titleView.setText("Profiles");
+        titleView.setTextColor(0xFFFFFFFF);
+        titleView.setTextSize(18);
+        titleView.setPadding(padH * 2, padV * 2, padH * 2, padV);
+        titleView.setTypeface(null, android.graphics.Typeface.BOLD);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setCustomTitle(titleView)
+                .setView(root)
+                .setNegativeButton("Close", null)
+                .create();
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_bg);
+        }
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(0xFF888888);
+    }
+
+    private void showCreateProfileDialog() {
+        final int padH = (int) (12 * getResources().getDisplayMetrics().density);
+        final int padV = (int) (8 * getResources().getDisplayMetrics().density);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(padH, padV, padH, padV);
+        root.setBackgroundColor(0xFF161B22);
+
+        // Name field
+        TextView nameLabel = new TextView(this);
+        nameLabel.setText("Profile name:");
+        nameLabel.setTextColor(0xFFBBBBBB);
+        nameLabel.setTextSize(13);
+        root.addView(nameLabel);
+
+        final EditText nameInput = new EditText(this);
+        nameInput.setTextColor(0xFFE0E0E0);
+        nameInput.setHintTextColor(0xFF888888);
+        nameInput.setHint("My Profile");
+        nameInput.setBackgroundResource(R.drawable.input_bg);
+        nameInput.setSingleLine(true);
+        nameInput.setPadding(padH + 4, padV + 2, padH + 4, padV + 2);
+        root.addView(nameInput);
+
+        // Content field (settings.json JSON)
+        TextView contentLabel = new TextView(this);
+        contentLabel.setText("Content (settings.json JSON):");
+        contentLabel.setTextColor(0xFFBBBBBB);
+        contentLabel.setTextSize(13);
+        contentLabel.setPadding(0, padV, 0, 0);
+        root.addView(contentLabel);
+
+        final EditText contentInput = new EditText(this);
+        contentInput.setTextColor(0xFFE0E0E0);
+        contentInput.setHintTextColor(0xFF888888);
+        contentInput.setHint("{\n  \"model\": \"claude-sonnet-4-6\",\n  \"thinkingBudget\": 8000\n}");
+        contentInput.setBackgroundResource(R.drawable.input_bg);
+        contentInput.setMinLines(6);
+        contentInput.setMaxLines(12);
+        contentInput.setGravity(Gravity.TOP | Gravity.START);
+        contentInput.setPadding(padH + 4, padV + 2, padH + 4, padV + 2);
+        root.addView(contentInput);
+
+        TextView titleView = new TextView(this);
+        titleView.setText("Create Profile");
+        titleView.setTextColor(0xFFFFFFFF);
+        titleView.setTextSize(18);
+        titleView.setPadding(padH * 2, padV * 2, padH * 2, padV);
+        titleView.setTypeface(null, android.graphics.Typeface.BOLD);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setCustomTitle(titleView)
+                .setView(root)
+                .setPositiveButton("Create", (d, which) -> {
+                    String name = nameInput.getText().toString().trim();
+                    if (name.isEmpty()) {
+                        Toast.makeText(MainActivity.this, "Profile name is required", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    String contentStr = contentInput.getText().toString().trim();
+                    JsonObject content;
+                    if (contentStr.isEmpty()) {
+                        content = new JsonObject();
+                    } else {
+                        try {
+                            content = JsonParser.parseString(contentStr).getAsJsonObject();
+                        } catch (Exception e) {
+                            Toast.makeText(MainActivity.this, "Invalid JSON: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                    }
+                    wsManager.sendCreateProfile(name, content);
+                    wsManager.sendListProfiles(); // Refresh on next response
+                })
+                .setNegativeButton("Cancel", null)
+                .create();
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_bg);
+        }
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(0xFF51CF66);
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(0xFF888888);
+    }
+
+    private void showRenameProfileDialog(ProfileInfo profile) {
+        final int padH = (int) (12 * getResources().getDisplayMetrics().density);
+        final int padV = (int) (8 * getResources().getDisplayMetrics().density);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(padH, padV, padH, padV);
+        root.setBackgroundColor(0xFF161B22);
+
+        TextView label = new TextView(this);
+        label.setText("New name:");
+        label.setTextColor(0xFFBBBBBB);
+        label.setTextSize(13);
+        root.addView(label);
+
+        final EditText input = new EditText(this);
+        input.setTextColor(0xFFE0E0E0);
+        input.setBackgroundResource(R.drawable.input_bg);
+        input.setSingleLine(true);
+        input.setText(profile.name);
+        input.setSelection(profile.name.length());
+        input.setPadding(padH + 4, padV + 2, padH + 4, padV + 2);
+        root.addView(input);
+
+        TextView titleView = new TextView(this);
+        titleView.setText("Rename Profile");
+        titleView.setTextColor(0xFFFFFFFF);
+        titleView.setTextSize(18);
+        titleView.setPadding(padH * 2, padV * 2, padH * 2, padV);
+        titleView.setTypeface(null, android.graphics.Typeface.BOLD);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setCustomTitle(titleView)
+                .setView(root)
+                .setPositiveButton("Rename", (d, which) -> {
+                    String newName = input.getText().toString().trim();
+                    if (newName.isEmpty()) {
+                        Toast.makeText(MainActivity.this, "Name cannot be empty", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    wsManager.sendUpdateProfile(profile.id, newName, null);
+                    wsManager.sendListProfiles();
+                })
+                .setNegativeButton("Cancel", null)
+                .create();
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_bg);
+        }
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(0xFFFFD43B);
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(0xFF888888);
+    }
+
+    private void confirmDeleteProfile(ProfileInfo profile) {
+        new AlertDialog.Builder(this)
+                .setTitle("Delete Profile")
+                .setMessage("Delete \"" + profile.name + "\"?")
+                .setPositiveButton("Delete", (d, which) -> {
+                    wsManager.sendDeleteProfile(profile.id);
+                    wsManager.sendListProfiles();
+                })
+                .setNegativeButton("Cancel", null)
                 .create()
                 .show();
     }

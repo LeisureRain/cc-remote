@@ -53,6 +53,19 @@
             android:textSize="12sp" />
 
         <TextView
+            android:id="@+id/status_profile"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:textColor="@color/text_green"
+            android:textSize="11sp"
+            android:gravity="center_vertical"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
+            tools:text="[Default]" />
+
+        <TextView
             android:id="@+id/status_server"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
