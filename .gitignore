@@ -31,3 +31,6 @@ Thumbs.db
 gradle-bin.zip
 local.properties
 *.keystore
+
+# Build artifacts
+*.apk
