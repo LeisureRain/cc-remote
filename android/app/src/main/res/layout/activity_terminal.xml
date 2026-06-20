@@ -19,9 +19,11 @@
         android:theme="@style/ToolbarTheme"
         app:popupTheme="@style/WhitePopupMenu">
 
-        <!-- Custom content: title + status -->
+        <!-- Custom content: title + status. Width is wrap_content (not
+             match_parent) so the toolbar reserves room for the overflow menu
+             button on the right. -->
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="wrap_content"
             android:layout_height="match_parent"
             android:orientation="horizontal"
             android:gravity="center_vertical">
@@ -79,11 +81,10 @@
             android:hint="@string/msg_input_hint"
             android:paddingHorizontal="12dp"
             android:paddingVertical="10dp"
-            android:inputType="text|textNoSuggestions|textCapSentences"
+            android:inputType="textMultiLine|textCapSentences|textNoSuggestions"
             android:minLines="3"
             android:maxLines="5"
             android:gravity="top|start"
-            android:imeOptions="actionSend"
             android:textSize="14sp"
             android:fontFamily="monospace"
             android:importantForAutofill="no"

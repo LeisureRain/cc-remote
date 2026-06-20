@@ -3,10 +3,8 @@ package com.romp.ccremote.ui;
 import android.app.NotificationManager;
 import android.content.Intent;
 import android.os.Bundle;
-import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.TextView;
@@ -125,16 +123,10 @@ public class TerminalActivity extends AppCompatActivity
             scrollToBottom();
         }
 
-        // Input
-        inputText.setOnKeyListener((v, code, event) -> {
-            if (code == KeyEvent.KEYCODE_ENTER && event.getAction() == KeyEvent.ACTION_DOWN) {
-                sendInput(); return true;
-            }
-            return false;
-        });
-        inputText.setOnEditorActionListener((v, actionId, event) -> { sendInput(); return true; });
+        // Input — Enter inserts a newline (multi-line field); sending is done
+        // explicitly via the send button so multi-line messages aren't cut off.
         btnSend.setOnClickListener(v -> {
-            if (streaming) sendInterrupt();
+            if (streaming) confirmInterrupt();
             else sendInput();
         });
 
@@ -250,6 +242,7 @@ public class TerminalActivity extends AppCompatActivity
         if (id == android.R.id.home) { finish(); return true; /* no disconnect */ }
         if (id == R.id.action_disconnect) { disconnectAndFinish(); return true; }
         if (id == R.id.action_kill) { confirmKill(); return true; }
+        if (id == R.id.action_delete) { confirmDelete(); return true; }
         return super.onOptionsItemSelected(item);
     }
 
@@ -267,6 +260,20 @@ public class TerminalActivity extends AppCompatActivity
                     WebSocketManager.getInstance().sendKill(sessionId);
                     ClawForegroundService.stop(this);
                     Toast.makeText(this, "Session killed", Toast.LENGTH_SHORT).show();
+                    finish();
+                })
+                .setNegativeButton("Cancel", null).create().show();
+    }
+
+    private void confirmDelete() {
+        new AlertDialog.Builder(this)
+                .setTitle("Delete Session")
+                .setMessage("Permanently delete this session? It will be stopped and removed "
+                        + "from the server — it will NOT be restored after a server restart.")
+                .setPositiveButton("Delete", (d, w) -> {
+                    WebSocketManager.getInstance().sendDeleteSession(sessionId);
+                    ClawForegroundService.stop(this);
+                    Toast.makeText(this, "Session deleted", Toast.LENGTH_SHORT).show();
                     finish();
                 })
                 .setNegativeButton("Cancel", null).create().show();
@@ -411,6 +418,15 @@ public class TerminalActivity extends AppCompatActivity
 
     private void sendInterrupt() {
         WebSocketManager.getInstance().sendInterrupt(sessionId);
+    }
+
+    /** Confirm before interrupting an in-progress Claude turn. */
+    private void confirmInterrupt() {
+        new AlertDialog.Builder(this)
+                .setTitle("Stop Claude")
+                .setMessage("Interrupt Claude's current response?")
+                .setPositiveButton("Stop", (d, w) -> sendInterrupt())
+                .setNegativeButton("Cancel", null).create().show();
     }
 
     private void handleChatHistory(JsonObject data) {

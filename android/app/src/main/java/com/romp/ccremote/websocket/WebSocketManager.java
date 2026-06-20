@@ -413,6 +413,14 @@ public class WebSocketManager {
         return send(gson.toJson(msg));
     }
 
+    /** Permanently delete a session: stop it and purge its server-side persistence. */
+    public boolean sendDeleteSession(String sessionId) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "delete_session");
+        msg.addProperty("session_id", sessionId);
+        return send(gson.toJson(msg));
+    }
+
     public boolean sendInterrupt(String sessionId) {
         JsonObject msg = new JsonObject();
         msg.addProperty("type", "interrupt");

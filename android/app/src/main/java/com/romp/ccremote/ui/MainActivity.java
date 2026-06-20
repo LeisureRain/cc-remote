@@ -64,8 +64,8 @@ public class MainActivity extends AppCompatActivity {
     private final WebSocketManager.ProfileListListener profileListListener = this::onProfileList;
 
     private final WebSocketManager.MessageListener messageListener = (type, data) -> {
-        // Auto-refresh session list when a session is created or killed
-        if ("session_created".equals(type) || "session_killed".equals(type)) {
+        // Auto-refresh session list when a session is created, killed or deleted
+        if ("session_created".equals(type) || "session_killed".equals(type) || "session_deleted".equals(type)) {
             refreshSessions();
         }
         // Auto-connect to newly created session
@@ -818,10 +818,17 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             ProfileInfo sel = cachedProfiles.get(selectedIdx[0]);
-            wsManager.sendSwitchProfile(sel.id, sel.source);
-            wsManager.sendListProfiles();
-            Toast.makeText(this, "Switching to " + sel.name + " · restarting sessions…", Toast.LENGTH_SHORT).show();
-            if (profileDialog != null) profileDialog.dismiss();
+            new AlertDialog.Builder(this)
+                    .setTitle("Switch Profile")
+                    .setMessage("Switch to \"" + sel.name + "\"? Any running sessions will be "
+                            + "restarted to pick up the new provider/model.")
+                    .setPositiveButton("Switch", (d, w) -> {
+                        wsManager.sendSwitchProfile(sel.id, sel.source);
+                        wsManager.sendListProfiles();
+                        Toast.makeText(this, "Switching to " + sel.name + " · restarting sessions…", Toast.LENGTH_SHORT).show();
+                        if (profileDialog != null) profileDialog.dismiss();
+                    })
+                    .setNegativeButton("Cancel", null).create().show();
         });
         btnRow.addView(switchBtn);
 
