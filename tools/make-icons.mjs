@@ -26,9 +26,10 @@ if (!fs.existsSync(src)) {
 //
 //   - PNG ICO: compact, used as a .NET EmbeddedResource for the window
 //     icon (MainForm.TryLoadIcon loads it via GetManifestResourceStream).
-//   - BMP ICO: classic uncompressed frames; required by Roslyn's
-//     /win32icon switch for the PE native icon (Explorer, taskbar).
-//     Roslyn does NOT reliably embed PNG-in-ICO frames into .rsrc.
+//   - BMP ICO: classic uncompressed frames, used for the small sizes of the
+//     /win32icon PE native icon (Explorer, taskbar). The large 256 frame is
+//     PNG-compressed — current Roslyn embeds a PNG-in-ICO frame into .rsrc
+//     fine (verified), and BMP at 256 would add ~256 KB to the exe.
 // ================================================================
 
 function icoPack(frames) {
@@ -101,7 +102,11 @@ async function makePngFrames(sizes) {
 
 // 1) Windows icons — two ICO files with different purposes:
 //    - app.ico (PNG frames):  embedded managed resource for the window icon
-//    - app-win32.ico (BMP frames):  /win32icon for the PE native icon (Explorer)
+//    - app-win32.ico:  /win32icon for the PE native icon (Explorer/taskbar).
+//      Small frames are BMP (Roslyn embeds these reliably); the 256 frame is
+//      PNG-compressed so Explorer's large/extra-large views render crisply
+//      without bloating the exe by ~256 KB. (A missing 256 frame is what made
+//      the file icon look blurry/wrong at large sizes.)
 const launcherDir = path.join(repoRoot, 'launcher');
 const icoAll = [16, 24, 32, 48, 64, 256];
 const pngIco = icoPack(await makePngFrames(icoAll));
@@ -109,11 +114,13 @@ fs.writeFileSync(path.join(launcherDir, 'app.ico'), pngIco);
 const kB = (pngIco.length / 1024).toFixed(1);
 console.log(`[icons]   launcher/app.ico (${icoAll.length} frames PNG: ${icoAll.join(',')} — ${kB} KB)`);
 
-const icoWin32 = [16, 32, 48];
-const bmpIco = icoPack(await makeBmpFrames(icoWin32));
+const win32Bmp = [16, 32, 48, 64];
+const win32Png = [256];
+const win32Frames = [...await makeBmpFrames(win32Bmp), ...await makePngFrames(win32Png)];
+const bmpIco = icoPack(win32Frames);
 fs.writeFileSync(path.join(launcherDir, 'app-win32.ico'), bmpIco);
 const kB2 = (bmpIco.length / 1024).toFixed(1);
-console.log(`[icons]   launcher/app-win32.ico (${icoWin32.length} frames BMP: ${icoWin32.join(',')} — ${kB2} KB)`);
+console.log(`[icons]   launcher/app-win32.ico (${win32Frames.length} frames: BMP ${win32Bmp.join(',')} + PNG ${win32Png.join(',')} — ${kB2} KB)`);
 
 // 2) Android mipmap PNGs — adaptive-icon compatible densities
 const densities = [
