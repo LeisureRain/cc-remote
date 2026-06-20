@@ -83,6 +83,16 @@ cd android
 
 The project targets API 26+ (Android 8.0), uses AndroidX, and requires Java 8.
 
+## Development Workflow
+
+**Commit as soon as a change is complete (改完即提交).** Do not leave finished work sitting uncommitted in the working tree — once a logical change is done and sanity-checked, commit it immediately rather than waiting to be asked. This overrides the default "only commit when asked" behavior for this repo.
+
+- **Commit directly to `master`.** This is a solo project with a linear history; do not create feature branches unless explicitly requested.
+- **Group commits by component/feature.** Split a batch into coherent commits (e.g. `feat(server)`, `feat(android)`, `docs`) rather than one mega-commit.
+- **Conventional Commit messages.** Use `type(scope): summary` — e.g. `feat(server)`, `feat(android)`, `fix(android)`, `chore`, `docs`, `refactor`. End each message with the `Co-Authored-By` trailer.
+- **Keep CLAUDE.md current.** When a change alters architecture, the WebSocket protocol, config keys, or adds/removes a component, update this file in the same batch.
+- Pushing to `origin` is not automatic — push only when the user asks.
+
 ## Key Dependencies
 
 **Server:** `ws` (WebSocket), `uuid` (session IDs). (`node-pty` remains in `package.json` but is no longer used — sessions run headless `claude` via `child_process`, not a PTY.)
