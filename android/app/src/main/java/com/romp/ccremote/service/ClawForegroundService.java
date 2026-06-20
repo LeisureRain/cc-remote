@@ -113,11 +113,20 @@ public class ClawForegroundService extends Service {
             ch.enableVibration(false);
             nm.createNotificationChannel(ch);
 
-            // Reply channel with alert
+            // Reply channel with alert — showBadge is needed so the
+            // launcher icon gets a dot (or numeric badge) while an
+            // unread reply notification sits in the drawer.
+            // Android caches channel settings across launches, so
+            // recreate if the channel exists from an older version that
+            // had badges disabled (otherwise the fix never takes effect).
+            if (nm.getNotificationChannel(REPLY_CHANNEL) != null) {
+                nm.deleteNotificationChannel(REPLY_CHANNEL);
+            }
             NotificationChannel rch = new NotificationChannel(
                     REPLY_CHANNEL, "Claude Replies",
                     NotificationManager.IMPORTANCE_HIGH);
             rch.setDescription("Notifications when Claude responds");
+            rch.setShowBadge(true);
             nm.createNotificationChannel(rch);
         }
     }
