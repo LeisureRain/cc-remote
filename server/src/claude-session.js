@@ -59,6 +59,38 @@ function resolveCurrentModel() {
   }
 }
 
+/**
+ * Build a short, human-readable summary of a tool call's input so the Android
+ * client can show WHAT a tool is doing (which file / command / pattern), not
+ * just the tool name. Kept to ~120 chars; the full input is never forwarded.
+ */
+function summarizeToolInput(name, input) {
+  if (!input || typeof input !== 'object') return '';
+  const base = (p) => {
+    if (typeof p !== 'string') return '';
+    const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+    return i >= 0 ? p.slice(i + 1) : p;
+  };
+  let s = '';
+  switch (name) {
+    case 'Bash':        s = input.command || input.description || ''; break;
+    case 'Read':
+    case 'Write':
+    case 'Edit':
+    case 'MultiEdit':
+    case 'NotebookEdit': s = base(input.file_path || input.notebook_path); break;
+    case 'Glob':        s = input.pattern + (input.path ? ' in ' + base(input.path) : ''); break;
+    case 'Grep':        s = input.pattern + (input.path ? ' in ' + base(input.path) : ''); break;
+    case 'WebFetch':    s = input.url || ''; break;
+    case 'WebSearch':   s = input.query || ''; break;
+    case 'Task':        s = input.description || ''; break;
+    case 'TodoWrite':   s = Array.isArray(input.todos) ? input.todos.length + ' items' : ''; break;
+    default:            s = JSON.stringify(input); break;
+  }
+  s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  return s.length > 120 ? s.slice(0, 119) + '…' : s;
+}
+
 class ClaudeSession extends EventEmitter {
   constructor(id, directory, options = {}) {
     super();
@@ -87,6 +119,8 @@ class ClaudeSession extends EventEmitter {
     // Tool-call tracking (P3)
     this._activeToolCount = 0;    // number of tool_use blocks in the current turn
     this._toolPhaseHasText = false; // true once text resumes after tool calls
+    this._toolBlocks = new Map();  // stream-event index -> {name, id, buf} for tool input
+    this._lastThinkingPing = 0;    // throttle timestamp for session_thinking pings
 
     // claude session metadata (from system/init)
     this.claudeSessionId = null;
@@ -150,6 +184,8 @@ class ClaudeSession extends EventEmitter {
     session._streaming = false;
     session._activeToolCount = 0;
     session._toolPhaseHasText = false;
+    session._toolBlocks = new Map();
+    session._lastThinkingPing = 0;
     session.child = null;
     session._stdoutRl = null;
     session._resume = true;
@@ -312,10 +348,52 @@ class ClaudeSession extends EventEmitter {
             ev.content_block && ev.content_block.type === 'tool_use') {
           this._activeToolCount++;
           const toolName = ev.content_block.name || 'unknown';
+          const toolId = ev.content_block.id || '';
+          // Track this block so we can accumulate its streamed input JSON and
+          // emit a detail summary once the block completes.
+          if (typeof ev.index === 'number') {
+            this._toolBlocks.set(ev.index, { name: toolName, id: toolId, buf: '' });
+          }
+          // Instant feedback with just the name; detail follows on block stop.
           this._broadcast({
             type: 'session_tool', session_id: this.id,
-            status: 'running', name: toolName,
+            status: 'running', name: toolName, id: toolId,
           });
+          break;
+        }
+
+        // --- tool_use input streaming: accumulate partial JSON ---
+        if (ev.type === 'content_block_delta' && ev.delta &&
+            ev.delta.type === 'input_json_delta') {
+          const blk = typeof ev.index === 'number' ? this._toolBlocks.get(ev.index) : null;
+          if (blk) blk.buf += ev.delta.partial_json || '';
+          break;
+        }
+
+        // --- tool_use input complete: emit the argument summary ---
+        if (ev.type === 'content_block_stop' &&
+            typeof ev.index === 'number' && this._toolBlocks.has(ev.index)) {
+          const blk = this._toolBlocks.get(ev.index);
+          this._toolBlocks.delete(ev.index);
+          let detail = '';
+          try { detail = summarizeToolInput(blk.name, JSON.parse(blk.buf || '{}')); } catch (e) {}
+          if (detail) {
+            this._broadcast({
+              type: 'session_tool', session_id: this.id,
+              status: 'running', name: blk.name, id: blk.id, detail,
+            });
+          }
+          break;
+        }
+
+        // --- extended-thinking liveness: throttled heartbeat (no content) ---
+        if (ev.type === 'content_block_delta' && ev.delta &&
+            ev.delta.type === 'thinking_delta') {
+          const now = Date.now();
+          if (now - this._lastThinkingPing >= 1000) {
+            this._lastThinkingPing = now;
+            this._broadcast({ type: 'session_thinking', session_id: this.id, active: true });
+          }
           break;
         }
 
@@ -401,6 +479,7 @@ class ClaudeSession extends EventEmitter {
     this._turnText = '';
     this._activeToolCount = 0;       // P3: new turn, reset tool tracking
     this._toolPhaseHasText = false;
+    this._toolBlocks.clear();
     this._pushHistory({ role: 'user', text: prompt, ts: Date.now() });
 
     const envelope = { type: 'user', message: { role: 'user', content: [{ type: 'text', text: prompt }] } };
@@ -427,6 +506,7 @@ class ClaudeSession extends EventEmitter {
     const partial = (this._turnText && this._turnText.trim()) || '';
     this._activeToolCount = 0;       // P3: clear any tool indicators
     this._toolPhaseHasText = false;
+    this._toolBlocks.clear();
     this._restart();
     this._chatBusy = false;
     this._chatPending = null;
@@ -458,6 +538,7 @@ class ClaudeSession extends EventEmitter {
     this._streaming = false;
     this._activeToolCount = 0;
     this._toolPhaseHasText = false;
+    this._toolBlocks.clear();
     this._restart();
     console.log(`[ClaudeSession ${this.id}] restarted (model refresh)`);
   }
@@ -543,6 +624,7 @@ class ClaudeSession extends EventEmitter {
     this._turnText = '';
     this._activeToolCount = 0;
     this._toolPhaseHasText = false;
+    this._toolBlocks.clear();
     if (this._stdoutRl) { try { this._stdoutRl.close(); } catch (e) {} this._stdoutRl = null; }
 
     // Detach child listeners so the async 'exit' doesn't broadcast session_exited
