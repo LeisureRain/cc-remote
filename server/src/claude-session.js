@@ -96,6 +96,8 @@ class ClaudeSession extends EventEmitter {
     this.child = null;
     this._stdoutRl = null;
     this._resume = false;         // first launch creates the session; restarts resume it
+    this._noConvoSeen = false;    // set when stderr reports a failed --resume lookup
+    this._freshFallbackTried = false; // guards the resume→fresh recovery to once per start
 
     this._start();
   }
@@ -147,6 +149,8 @@ class ClaudeSession extends EventEmitter {
     session.child = null;
     session._stdoutRl = null;
     session._resume = true;
+    session._noConvoSeen = false;
+    session._freshFallbackTried = false;
 
     // Trim chat history if over limit
     if (session._chatHistory.length > MAX_CHAT_HISTORY) {
@@ -162,6 +166,7 @@ class ClaudeSession extends EventEmitter {
   // ==========================================================
 
   _start() {
+    this._noConvoSeen = false; // re-armed each launch; set by stderr if --resume misses
     const parts = [
       'claude', '-p',
       '--input-format', 'stream-json',
@@ -204,7 +209,12 @@ class ClaudeSession extends EventEmitter {
 
       this.child.stderr.on('data', (d) => {
         const s = d.toString().trim();
-        if (s) console.error(`[ClaudeSession ${this.id}] stderr: ${s.substring(0, 500)}`);
+        if (s) {
+          // A failed `--resume` lookup prints this. Flag it so the exit
+          // handler can recover by starting fresh instead of bricking.
+          if (/No conversation found/i.test(s)) this._noConvoSeen = true;
+          console.error(`[ClaudeSession ${this.id}] stderr: ${s.substring(0, 500)}`);
+        }
       });
 
       this.child.on('error', (err) => {
@@ -215,6 +225,29 @@ class ClaudeSession extends EventEmitter {
 
       this.child.on('exit', (code) => {
         this.isRunning = false;
+
+        // Resume recovery: `--resume <id>` fails with exit 1 + "No conversation
+        // found" when claude has no stored conversation for this id (e.g. the
+        // session was restarted — say by a profile switch — before any turn was
+        // ever persisted). Rather than bricking the session, fall back ONCE to a
+        // fresh start under the same id so the user can keep chatting. claude's
+        // own context is lost, but CC Remote's chat history is preserved, and the
+        // fresh start re-creates the conversation so future resumes work.
+        if (code !== 0 && this._resume && this._noConvoSeen && !this._freshFallbackTried) {
+          this._freshFallbackTried = true;
+          this._resume = false;
+          this._chatBusy = false;
+          this._chatPending = null;
+          console.warn(`[ClaudeSession ${this.id}] resume failed (no stored conversation) — starting fresh under same id`);
+          const note = '⚠️ 无法恢复之前的会话上下文，已开始新的对话（聊天记录已保留）。';
+          this._pushHistory({ role: 'claude', text: '⚠️ _无法恢复之前的会话上下文，已开始新的对话（聊天记录已保留）。_', ts: Date.now() });
+          this._broadcast({ type: 'session_response', session_id: this.id, data: note });
+          if (this._stdoutRl) { try { this._stdoutRl.close(); } catch (e) {} this._stdoutRl = null; }
+          this.child = null;
+          this._start();
+          return;
+        }
+
         this.exitCode = code;
         this._chatBusy = false;
         this._chatPending = null;
@@ -242,6 +275,9 @@ class ClaudeSession extends EventEmitter {
     switch (obj.type) {
       case 'system':
         if (obj.subtype === 'init') {
+          // A clean init means the process started fine — re-arm the resume→fresh
+          // fallback so a LATER restart can recover too (not just the first).
+          this._freshFallbackTried = false;
           // Re-broadcast on EVERY init (not only the first) so a restart after
           // a profile switch propagates the freshly-resolved model to clients.
           this.claudeSessionId = obj.session_id || this.claudeSessionId;
