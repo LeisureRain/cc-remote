@@ -1,6 +1,6 @@
 {
   "name": "cc-remote-server",
-  "version": "1.2.3",
+  "version": "1.2.5",
   "description": "CC Remote Server - WebSocket server that manages Claude Code processes",
   "main": "src/index.js",
   "scripts": {

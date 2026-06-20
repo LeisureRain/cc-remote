@@ -4,14 +4,14 @@ plugins {
 
 android {
     namespace 'com.romp.ccremote'
-    compileSdk 31
+    compileSdk 34
 
     defaultConfig {
         applicationId "com.romp.ccremote"
         minSdk 26
-        targetSdk 31
-        versionCode 6
-        versionName "1.2.3"
+        targetSdk 34
+        versionCode 7
+        versionName "1.2.5"
     }
 
     signingConfigs {
