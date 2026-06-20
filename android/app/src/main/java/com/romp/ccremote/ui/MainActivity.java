@@ -729,8 +729,14 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showAboutDialog() {
+        String version;
+        try {
+            version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (PackageManager.NameNotFoundException e) {
+            version = "?";
+        }
         String message = "CC Remote\n\n"
-                + "Version: 1.2.0\n\n"
+                + "Version: " + version + "\n\n"
                 + "Author: romp\n"
                 + "Email: srpol@outlook.com\n\n"
                 + "Remote Claude Code via Android.\n"
