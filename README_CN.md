@@ -34,7 +34,8 @@
 
 ## 功能
 
-- **会话管理** — 创建、列出、连接、终止 Claude Code 会话
+- **会话管理** — 创建、列出、连接、停止/恢复、删除 Claude Code 会话
+- **供应商与模型切换** — 在应用里随时切换会话使用的 AI 供应商/模型，并自动发现 [CC Switch](https://github.com/farion1231/cc-switch) 配置
 - **Markdown 渲染** — 完整支持 Markdown，包括表格、代码块、链接
 - **工作区限制** — 可配置服务端锁定到指定目录，禁止访问外部路径
 - **目录浏览** — 从 Android 端浏览服务端文件系统，选择工作目录
@@ -114,6 +115,23 @@ cd android
 | `workspace` | 设置后，目录浏览和会话创建将被限制在此路径及其子目录内 |
 
 环境变量（`PORT`、`HOST`、`MAX_SESSIONS`、`WORKSPACE`）可覆盖配置文件。
+
+## 供应商配置与 CC Switch 集成
+
+CC Remote 可以直接在应用里切换 Claude Code 会话所使用的 **AI 供应商和模型** — 而且**完全不碰**你全局的 `~/.claude/settings.json`。点击会话列表顶部的配置标签，选择一个配置并确认：服务端会重建私有的设置覆盖文件，并重启运行中的会话，让它们原子地切换到新的供应商/模型（新模型随后会在应用里显示出来）。
+
+### 两类配置来源
+
+- **本地（Local）** — 你在应用里创建的配置：一个名称 + 一段 `settings.json` JSON 片段（例如一个 `model`，以及包含 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` 的 `env` 块）。完全由 CC Remote 管理 — 创建、重命名、切换、删除。
+- **CC Switch** — 如果你在用 [CC Switch](https://github.com/farion1231/cc-switch) 桌面应用，CC Remote 会从 `~/.cc-switch/cc-switch.db` 自动发现它的 Claude 供应商配置（只读，通过 Node 内置的 `node:sqlite`）。它们会显示在选择器的单独分区里，可以切换过去，但**不能**在这里编辑 — 这类配置请在 CC Switch 里管理。
+
+### 切换机制（以及为什么安全）
+
+- **绝不写 `~/.claude/settings.json`。** 覆盖这个共享的全局文件会与 CC Switch 桌面应用冲突，并让正在运行的 `claude` 卡在不匹配的模型/端点上 — 这正是切换后出现「model not found」的历史根源。CC Remote 改为把所选配置深度合并到它**自己的私有覆盖文件** `server/profiles/active-settings.json`，并给每个 `claude` 进程加上 `--settings <该文件>` 启动。
+- **用 `--settings` 而不是环境变量。** 往子进程的环境变量里注入 `ANTHROPIC_BASE_URL` 是*无效*的，因为 `settings.json` 的 `env` 块会覆盖真实的进程环境变量。而 `--settings` 是高优先级覆盖，会*压过* `settings.json`（经实测验证）— 这才是按进程切换供应商能真正生效的原因。
+- **单一事实来源。** 当前激活的配置记录在 `server/profiles/index.json` 中。切换时，服务端重建覆盖文件、更新索引、并重启所有运行中的会话；新模型通过 `session_meta` 消息回传到应用。整个切换由服务端驱动 — 不依赖客户端当前打开的是哪个界面。
+
+> `server/profiles/` 目录（覆盖文件 + 本地配置）已被 gitignore — 你的 token 只留在本机。CC Switch 配置无法通过 CC Remote 创建、重命名或删除，请用 CC Switch 管理。
 
 ## WebSocket 协议
 

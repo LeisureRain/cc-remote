@@ -34,7 +34,8 @@ Now you can vibe code from literally anywhere with mobile data or Wi-Fi — your
 
 ## Features
 
-- **Session management** — create, list, connect, and kill Claude Code sessions
+- **Session management** — create, list, connect, stop/resume, and delete Claude Code sessions
+- **Provider & model switching** — switch the AI provider/model your sessions use on the fly, with automatic [CC Switch](https://github.com/farion1231/cc-switch) profile discovery
 - **Markdown rendering** — full Markdown support including tables, code blocks, and links
 - **Workspace restriction** — optionally lock the server to a specific directory tree
 - **Directory browser** — browse the server filesystem from the Android app to pick a working directory
@@ -114,6 +115,23 @@ Edit `server/config.json`:
 | `workspace` | If set, restricts directory browsing and session creation to this path and its subdirectories |
 
 Environment variables (`PORT`, `HOST`, `MAX_SESSIONS`, `WORKSPACE`) override the config file.
+
+## Provider Profiles & CC Switch Integration
+
+CC Remote can switch the **AI provider and model** your Claude Code sessions run on — straight from the app, without ever touching your global `~/.claude/settings.json`. Tap the profile chip at the top of the session list, pick a profile, and confirm: the server rebuilds its private settings overlay and restarts running sessions so they pick up the new provider/model atomically (the new model then shows up in the app).
+
+### Two profile sources
+
+- **Local** — profiles you create in the app: a name plus a `settings.json` JSON snippet (e.g. a `model` and a provider `env` block with `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`). Fully managed from CC Remote — create, rename, switch, delete.
+- **CC Switch** — if you use the [CC Switch](https://github.com/farion1231/cc-switch) desktop app, CC Remote auto-discovers its Claude provider profiles from `~/.cc-switch/cc-switch.db` (read-only, via Node's built-in `node:sqlite`). They show up in a separate section of the picker and can be switched to, but **not** edited here — manage those in CC Switch itself.
+
+### How switching works (and why it's safe)
+
+- **It never writes `~/.claude/settings.json`.** Overwriting the shared global file would collide with the CC Switch desktop app and leave a running `claude` stuck on a mismatched model/endpoint — the historical cause of "model not found" after a switch. Instead, CC Remote deep-merges the chosen profile into its **own private overlay** at `server/profiles/active-settings.json` and launches every `claude` process with `--settings <that file>`.
+- **`--settings`, not environment variables.** Injecting `ANTHROPIC_BASE_URL` into the child process's env does *not* work, because a `settings.json` `env` block overrides real process env vars. `--settings` is a high-precedence overlay that *wins* over `settings.json` (verified empirically) — that's what makes per-process provider switching actually take effect.
+- **Single source of truth.** The active profile is recorded in `server/profiles/index.json`. On switch, the server rebuilds the overlay, updates the index, and restarts all running sessions; the fresh model propagates back to the app via the `session_meta` message. Switching is server-driven — it doesn't depend on which client screen happens to be open.
+
+> The `server/profiles/` directory (overlay + local profiles) is gitignored — your tokens stay on your machine. CC Switch profiles cannot be created, renamed, or deleted through CC Remote; use CC Switch for that.
 
 ## WebSocket Protocol
 
