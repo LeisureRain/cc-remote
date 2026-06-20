@@ -1,23 +1,37 @@
 # CC Remote
 
-**Code from your couch.** CC Remote lets you control Claude Code on your workstation from your Android phone — browse project directories, start coding sessions, and chat with Claude over WebSocket. It's the ultimate tool for vibe coders who want to keep the flow going without being chained to a desk.
+**Code from your couch.** CC Remote lets you drive Claude Code on your workstation from your Android phone — browse project directories, start coding sessions, switch AI providers, and chat with Claude over WebSocket. It's the ultimate tool for vibe coders who want to keep the flow going without being chained to a desk.
 
-Got an idea while grabbing coffee? Pull out your phone, describe what you want, and Claude Code does the rest on your real dev machine. All you need is a network connection between your phone and workstation.
+Got an idea while grabbing coffee? Pull out your phone, describe what you want, and Claude Code does the rest on your real dev machine. All you need is a network connection between your phone and your workstation.
+
+> English | [中文](README_CN.md)
+
+## Screenshots
+
+| Sessions | Start a session | Chat |
+|:---:|:---:|:---:|
+| ![Session list](screenshots/home.jpg) | ![Start Claude Code](screenshots/start-session.jpg) | ![Chat](screenshots/chat.jpg) |
+| **Provider / model picker** | **Server settings** | |
+| ![Profiles](screenshots/profiles.jpg) | ![Server settings](screenshots/server-settings.jpg) | |
+
+**Windows launcher** — one-click server control with a live log and a read-only session list:
+
+![Windows launcher](screenshots/windows.png)
 
 ## How It Works
 
 ```
-┌──────────────┐     WebSocket (JSON)     ┌────────────────┐     PTY     ┌──────────┐
-│ Android App  │ ◄──────────────────────► │ Node.js Server │ ◄─────────► │  claude  │
-│  (anywhere)  │     over LAN / VPN       │  (workstation) │            │   CLI    │
-└──────────────┘                          └────────────────┘            └──────────┘
+┌──────────────┐     WebSocket (JSON)     ┌────────────────┐   stream-json   ┌──────────┐
+│ Android App  │ ◄──────────────────────► │ Node.js Server │ ◄────(stdio)───► │  claude  │
+│  (anywhere)  │     over LAN / VPN       │  (workstation) │                 │   CLI    │
+└──────────────┘                          └────────────────┘                 └──────────┘
 ```
 
-1. The **Node.js server** runs on your workstation, spawning `claude` CLI processes in pseudo-terminals
-2. The **Android app** connects over WebSocket to list sessions, browse directories, and chat with Claude
-3. Claude Code reads and writes files on your workstation just like it would if you were sitting at the keyboard
+1. The **Node.js server** runs on your workstation. Each session is one long-lived `claude -p` process in stream-json mode (headless, no PTY) — user turns go in as NDJSON on stdin, and Claude's streaming events come back on stdout.
+2. The **Android app** connects over WebSocket to list sessions, browse directories, switch providers, and chat with Claude.
+3. Claude Code reads and writes files on your workstation just like it would if you were sitting at the keyboard.
 
-The chat interface renders Claude's Markdown responses — including tables, code blocks, and links — directly in the app. You describe what you want in natural language, Claude executes, and you see the results in real time.
+The chat interface renders Claude's Markdown responses — including tables, code blocks, and links — directly in the app. You describe what you want in natural language, Claude executes, and you see the streaming result in real time. Sessions are persistent: they survive a server restart and resume with full context via `--resume`.
 
 ## Remote Access with ZeroTier
 
@@ -34,15 +48,17 @@ Now you can vibe code from literally anywhere with mobile data or Wi-Fi — your
 
 ## Features
 
-- **Session management** — create, list, connect, stop/resume, and delete Claude Code sessions
-- **Provider & model switching** — switch the AI provider/model your sessions use on the fly, with automatic [CC Switch](https://github.com/farion1231/cc-switch) profile discovery
+- **Session management** — create, list, connect, stop/resume, and delete Claude Code sessions; multiple sessions run concurrently
+- **Persistent sessions** — sessions survive a server restart and resume with full context (`--resume`); a paused session stays paused across reboots
+- **Provider & model switching** — switch the AI provider/model your sessions use on the fly, straight from the app, with automatic [CC Switch](https://github.com/farion1231/cc-switch) profile discovery
 - **Markdown rendering** — full Markdown support including tables, code blocks, and links
 - **Workspace restriction** — optionally lock the server to a specific directory tree
-- **Directory browser** — browse the server filesystem from the Android app to pick a working directory
-- **Background persistence** — foreground service keeps the WebSocket connection alive even when the app is in the background
+- **Directory browser** — browse the server filesystem from the Android app to pick a working directory, with recent paths and quick paths
+- **Background persistence** — a foreground service keeps the WebSocket connection alive even when the app is in the background
 - **Reply notifications** — get notified when Claude responds while the app is in the background
-- **Continue mode toggle** — choose whether to pass `--continue` to `claude -p`
+- **Auth token** — every connection is gated by an auto-generated token, so a session on your LAN/VPN isn't open to anyone who finds the port
 - **Multi-client watching** — multiple Android devices can view the same session simultaneously
+- **Windows launcher** — a single-exe GUI to run the server with no terminal, with a live log and a read-only session list
 
 ## Quick Start
 
@@ -54,14 +70,15 @@ npm install
 npm start
 ```
 
-The server starts on `http://0.0.0.0:11199` by default. Open `http://<server-ip>:11199` in a browser for a simple status / health-check page.
+The server starts on `http://0.0.0.0:11199` by default. Open `http://<server-ip>:11199` in a browser for a simple status / health-check page. On first run it prints (and persists) an **auth token** — you'll enter this in the Android app's Server Settings.
 
 #### Windows: one-click launcher
 
 For non-technical Windows users there's a tiny GUI launcher (`launcher/`). The **entire server is
 embedded inside a single ~160 KB exe** (extracted to `%LOCALAPPDATA%\CC-Remote` on first run) — users
 download one file, no folder, no runtime install (targets the built-in .NET Framework 4.8). It
-starts/stops/restarts the server process and shows its log live. Build it with:
+starts/stops/restarts the server process, shows its log live, and mirrors the active session list.
+Build it with:
 
 ```bash
 node package-win.mjs   # -> dist/CCRemoteLauncher-v<VERSION>.exe  (ship this one file)
@@ -85,7 +102,7 @@ Or build the signed release APK straight into `dist/` from the repo root:
 node package-android.mjs   # -> dist/cc-remote-v<VERSION>.apk
 ```
 
-Install the APK on your device. Configure the server IP and port in Settings (default port **11199**).
+Install the APK on your device. In **Settings**, set the server IP, port (default **11199**), and the auth token printed by the server.
 
 > **⚠️ Important for background notifications:** To receive Claude's replies when the app is in the background:
 > 1. **Notification access** — On first launch, Android will ask for notification permission. Tap "Allow". If you skipped it, go to **Settings → Apps → CC Remote → Notifications** and enable all notification channels. Without this, reply notifications will be **silent** (no sound/vibration).
@@ -100,7 +117,9 @@ Edit `server/config.json`:
   "port": 11199,
   "host": "0.0.0.0",
   "maxSessions": 20,
-  "workspace": ""
+  "workspace": "",
+  "persistSessions": true,
+  "sessionsDir": "sessions"
 }
 ```
 
@@ -110,8 +129,10 @@ Edit `server/config.json`:
 | `host` | Bind address (`0.0.0.0` for LAN access) |
 | `maxSessions` | Maximum concurrent Claude Code sessions |
 | `workspace` | If set, restricts directory browsing and session creation to this path and its subdirectories |
+| `persistSessions` | Persist session state to disk and restore it on restart |
+| `sessionsDir` | Directory (relative to `server/`) where persisted session state is written |
 
-Environment variables (`PORT`, `HOST`, `MAX_SESSIONS`, `WORKSPACE`) override the config file.
+Environment variables (`PORT`, `HOST`, `MAX_SESSIONS`, `WORKSPACE`, `PERMISSION_MODE`, `PERSIST_SESSIONS`, `SESSIONS_DIR`) override the config file. The auth token is auto-generated on first run and stored in `server/.cc-remote-token`.
 
 ## Provider Profiles & CC Switch Integration
 
@@ -136,9 +157,11 @@ All messages are JSON with a `type` field. See [CLAUDE.md](CLAUDE.md) for the fu
 
 ## Requirements
 
-**Server:** Node.js 18+, `claude` CLI installed and in PATH.
+**Server:** Node.js 18+ (with built-in `node:sqlite` for CC Switch discovery — Node 22+ recommended), `claude` CLI installed and in PATH.
 
 **Android:** API 26+ (Android 8.0).
+
+**Windows launcher:** .NET Framework 4.8 (built into Windows 10 1903+/11), plus Node.js + `claude` on PATH.
 
 ## License
 
