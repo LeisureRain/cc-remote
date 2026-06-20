@@ -252,8 +252,8 @@ class ClaudeSession extends EventEmitter {
           this._chatBusy = false;
           this._chatPending = null;
           console.warn(`[ClaudeSession ${this.id}] resume failed (no stored conversation) — starting fresh under same id`);
-          const note = '⚠️ 无法恢复之前的会话上下文，已开始新的对话（聊天记录已保留）。';
-          this._pushHistory({ role: 'claude', text: '⚠️ _无法恢复之前的会话上下文，已开始新的对话（聊天记录已保留）。_', ts: Date.now() });
+          const note = '⚠️ Could not restore the previous conversation context; started a new conversation (chat history preserved).';
+          this._pushHistory({ role: 'claude', text: '⚠️ _Could not restore the previous conversation context; started a new conversation (chat history preserved)._', ts: Date.now() });
           this._broadcast({ type: 'session_response', session_id: this.id, data: note });
           if (this._stdoutRl) { try { this._stdoutRl.close(); } catch (e) {} this._stdoutRl = null; }
           this.child = null;
