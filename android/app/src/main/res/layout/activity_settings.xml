@@ -103,7 +103,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
-                android:text="Make sure the Remote Claw Server is running on the target machine and the port is accessible from your device."
+                android:text="Make sure the CC Remote Server is running on the target machine and the port is accessible from your device."
                 android:textColor="@color/text_secondary"
                 android:textSize="13sp"
                 android:gravity="center" />
