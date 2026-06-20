@@ -367,6 +367,29 @@ class ClaudeSession extends EventEmitter {
     return { ok: true };
   }
 
+  /**
+   * Restart the claude subprocess so it picks up the current model from
+   * ~/.claude/settings.json. If a turn is in-flight it is interrupted
+   * first (partial text saved to history). Otherwise it's a silent restart
+   * — the session's chat history is preserved via --resume.
+   */
+  restart() {
+    if (this._chatBusy) {
+      // Interrupt first (saves partial text, broadcasts interrupted marker),
+      // then _restart() kills and relaunches with the fresh model.
+      this.interrupt();
+      return;
+    }
+    // Idle restart — clear any stale state and relaunch.
+    this._chatBusy = false;
+    this._turnText = '';
+    this._streaming = false;
+    this._activeToolCount = 0;
+    this._toolPhaseHasText = false;
+    this._restart();
+    console.log(`[ClaudeSession ${this.id}] restarted (model refresh)`);
+  }
+
   /** Kill the current process (silently) and relaunch it resuming the session. */
   _restart() {
     this._resume = true;

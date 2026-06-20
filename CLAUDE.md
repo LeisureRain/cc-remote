@@ -40,6 +40,7 @@ All messages are JSON with a `type` field.
 | C→S | `connect_session` | `session_id` |
 | C→S | `send_input` | `session_id`, `text` |
 | C→S | `send_chat` | `session_id`, `text` (`continue` accepted but ignored — the persistent process always continues) |
+| C→S | `restart_session` | `session_id` — kills and relaunches the claude process to pick up the current model |
 | C→S | `disconnect_session` | `session_id` |
 | C→S | `kill_session` | `session_id` |
 | C→S | `server_info` | — |
@@ -49,6 +50,7 @@ All messages are JSON with a `type` field.
 | S→C | `session_created` | `session_id`, `directory`, `createdAt` |
 | S→C | `session_connected` | `session_id`, `directory`, `status`, `exitCode` |
 | S→C | `session_meta` | `session_id`, `claude_session_id`, `model`, `tools` (from claude's system/init) |
+| S→C | `session_restarted` | `session_id` (ack for `restart_session`) |
 | S→C | `session_output` | `session_id`, `data_raw` (string), `replay` (bool, optional) |
 | S→C | `session_delta` | `session_id`, `text` (incremental streaming token chunk) |
 | S→C | `session_tool` | `session_id`, `status` (`running`\|`done`), `name` (tool name, on `running`) |

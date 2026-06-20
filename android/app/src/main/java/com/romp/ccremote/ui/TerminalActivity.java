@@ -316,6 +316,14 @@ public class TerminalActivity extends AppCompatActivity
                 runOnUiThread(() -> onToolEvent(status, name));
                 break;
             }
+            case "profile_switched": {
+                // Profile changed — restart the session so the new model takes effect
+                runOnUiThread(() -> {
+                    WebSocketManager.getInstance().sendRestartSession(sessionId);
+                    Toast.makeText(this, "Restarting with new model…", Toast.LENGTH_SHORT).show();
+                });
+                break;
+            }
         }
     }
 

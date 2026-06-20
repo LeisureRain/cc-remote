@@ -468,6 +468,13 @@ public class WebSocketManager {
         return send(gson.toJson(msg));
     }
 
+    public boolean sendRestartSession(String sessionId) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "restart_session");
+        msg.addProperty("session_id", sessionId);
+        return send(gson.toJson(msg));
+    }
+
     // ============================================================
     // Server info accessors
     // ============================================================

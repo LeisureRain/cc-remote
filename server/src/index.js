@@ -513,6 +513,17 @@ wss.on('connection', (ws, req) => {
         break;
       }
 
+      case 'restart_session': {
+        const sid = message.session_id || currentSessionId;
+        if (!sid) { sendToClient(ws, { type: 'error', message: 'session_id is required' }); return; }
+        const session = sessionManager.sessions.get(sid);
+        if (!session) { sendToClient(ws, { type: 'error', message: `Session ${sid} not found` }); return; }
+        if (!session.isRunning) { sendToClient(ws, { type: 'error', message: `Session ${sid} is not running` }); return; }
+        session.restart();
+        sendToClient(ws, { type: 'session_restarted', session_id: sid });
+        break;
+      }
+
       // — Profile management —
 
       case 'list_profiles': {
