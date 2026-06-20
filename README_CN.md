@@ -64,7 +64,7 @@ npm start
 停止 / 重启服务端进程，并实时显示日志。打包：
 
 ```bash
-node package-win.mjs   # -> dist/CCRemoteLauncher.exe（发这一个文件即可）
+node package-win.mjs   # -> dist/CCRemoteLauncher-v<VERSION>.exe（发这一个文件即可）
 ```
 
 目标机器只需 PATH 中有 Node.js 和 `claude` CLI（服务端真正干活是调用本机的 claude，exe 替代不了它）。

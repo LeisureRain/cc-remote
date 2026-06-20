@@ -3,9 +3,9 @@
 //
 //   node package-win.mjs
 //
-// Produces  dist/CCRemoteLauncher.exe  — ONE self-contained file. The entire server
-// (src + production node_modules + default config.json) is embedded inside the exe and
-// extracted to %LOCALAPPDATA%\CC-Remote\server on first run.
+// Produces  dist/CCRemoteLauncher-v<VERSION>.exe  — ONE self-contained file. The entire
+// server (src + production node_modules + default config.json) is embedded inside the exe
+// and extracted to %LOCALAPPDATA%\CC-Remote\server on first run.
 //
 // The target machine still needs Node.js + the `claude` CLI on PATH — the exe drives the
 // local claude CLI, it does not replace it. (Any box with `claude` installed already has Node.)
@@ -24,6 +24,8 @@ function run(cmd, cwd) {
   execSync(cmd, { cwd, stdio: 'inherit' });
 }
 
+const version = fs.readFileSync(path.join(repoRoot, 'VERSION'), 'utf8').trim();
+
 // 1) Sync versions from the root VERSION file.
 run('node tools/sync-version.mjs', repoRoot);
 
@@ -41,13 +43,17 @@ if (!fs.existsSync(exe)) {
   process.exit(1);
 }
 
-// 4) Emit the single exe (+ its .config) to dist/.
-fs.rmSync(distRoot, { recursive: true, force: true });
+// 4) Emit the launcher (+ its .config) to dist/ with a versioned name.
+//    Only clean old Windows artifacts so Android APKs in dist/ are untouched.
 fs.mkdirSync(distRoot, { recursive: true });
-fs.copyFileSync(exe, path.join(distRoot, 'CCRemoteLauncher.exe'));
+for (const f of fs.readdirSync(distRoot)) {
+  if (f.startsWith('CCRemoteLauncher')) fs.rmSync(path.join(distRoot, f));
+}
+const outExe = path.join(distRoot, `CCRemoteLauncher-v${version}.exe`);
+fs.copyFileSync(exe, outExe);
 const cfg = exe + '.config';
-if (fs.existsSync(cfg)) fs.copyFileSync(cfg, path.join(distRoot, 'CCRemoteLauncher.exe.config'));
+if (fs.existsSync(cfg)) fs.copyFileSync(cfg, path.join(distRoot, `CCRemoteLauncher-v${version}.exe.config`));
 
-const kb = Math.round(fs.statSync(exe).size / 1024);
-console.log(`\n[package] done -> dist/CCRemoteLauncher.exe (${kb} KB, server embedded)`);
+const kb = Math.round(fs.statSync(outExe).size / 1024);
+console.log(`\n[package] done -> dist/CCRemoteLauncher-v${version}.exe (${kb} KB, server embedded)`);
 console.log('[package] ship this single exe. Target needs Node.js + claude CLI on PATH.');

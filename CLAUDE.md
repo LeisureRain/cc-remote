@@ -41,7 +41,7 @@ A tiny .NET WinForms desktop app that lets non-technical Windows users run the s
 
 ### Packaging (`package-*.mjs` at repo root)
 Two root-level packaging entry points produce the shippable artifacts into `dist/`:
-- `node package-win.mjs` runs sync-version → build-server-bundle → `dotnet build -t:Rebuild` → emits the single `dist/CCRemoteLauncher.exe` (server embedded).
+- `node package-win.mjs` runs sync-version → build-server-bundle → `dotnet build -t:Rebuild` → emits `dist/CCRemoteLauncher-v<VERSION>.exe` (server embedded).
 - `node package-android.mjs` runs sync-version → `gradlew assembleRelease` (signed with `android/ccremote.keystore`) → emits `dist/cc-remote-v<VERSION>.apk`.
 
 ### Versioning (`VERSION` + `tools/`)
@@ -123,7 +123,7 @@ dotnet build -c Release      # -> bin/Release/net48/CCRemoteLauncher.exe (~15 KB
 ```bash
 # from repo root:
 node tools/sync-version.mjs  # propagate VERSION to server/launcher/android
-node package-win.mjs         # build the single dist/CCRemoteLauncher.exe (server embedded)
+node package-win.mjs         # build the single dist/CCRemoteLauncher-v<VERSION>.exe (server embedded)
 node package-android.mjs     # build the signed dist/cc-remote-v<VERSION>.apk
 ```
 

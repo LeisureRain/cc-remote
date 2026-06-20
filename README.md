@@ -64,7 +64,7 @@ download one file, no folder, no runtime install (targets the built-in .NET Fram
 starts/stops/restarts the server process and shows its log live. Build it with:
 
 ```bash
-node package-win.mjs   # -> dist/CCRemoteLauncher.exe  (ship this one file)
+node package-win.mjs   # -> dist/CCRemoteLauncher-v<VERSION>.exe  (ship this one file)
 ```
 
 The target machine just needs Node.js + the `claude` CLI on PATH (the exe drives the local `claude`,

@@ -16,7 +16,7 @@
 
 ## 运行方式
 
-直接双击 `CCRemoteLauncher.exe` —— 仅此一个文件。首次运行时,程序会把内置的服务端释放到
+直接双击 `CCRemoteLauncher-v<VERSION>.exe`(版本号在文件名里)—— 仅此一个文件。首次运行时,程序会把内置的服务端释放到
 用户数据目录,然后用系统 `node` 拉起它,并把日志实时显示在窗口里。关闭窗口会连同子进程
 (node + claude)一起结束。
 
@@ -46,10 +46,10 @@ dotnet build -c Release
 ```bash
 node package-win.mjs
 # 1) 同步版本号  2) 把服务端打包成 server-bundle.zip 嵌入资源
-# 3) 重新编译  ->  dist/CCRemoteLauncher.exe(单文件,约 160 KB,已内置服务端)
+# 3) 重新编译  ->  dist/CCRemoteLauncher-v<VERSION>.exe(版本号来自根 VERSION 文件)
 ```
 
-把 `dist/CCRemoteLauncher.exe` 直接发给用户即可。
+把 `dist/CCRemoteLauncher-v<VERSION>.exe` 直接发给用户即可。
 
 ## 版本号
 
