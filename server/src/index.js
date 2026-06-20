@@ -268,7 +268,7 @@ if(location.search.includes('token='))document.getElementById('err').style.displ
 </body></html>`);
 }
 
-// Common HTML head for terminal pages
+// Common HTML head for the status / login pages
 function htmlHead(title) {
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
