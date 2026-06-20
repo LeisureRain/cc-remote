@@ -40,4 +40,6 @@ local.properties
 # Windows launcher (.NET) build output + packaged distribution
 launcher/bin/
 launcher/obj/
+launcher/server-bundle.zip
+launcher/.bundle-stage/
 dist/

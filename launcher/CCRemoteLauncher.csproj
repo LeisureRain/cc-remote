@@ -21,6 +21,18 @@
   <ItemGroup>
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+
+  <!-- The entire server (src + production node_modules + default config.json) is embedded
+       as a zip so the launcher is a single self-contained exe. Built by
+       tools/build-server-bundle.mjs; the Condition lets a plain `dotnet build` succeed
+       without it (the exe then falls back to a sibling server/ folder). -->
+  <ItemGroup Condition="Exists('server-bundle.zip')">
+    <EmbeddedResource Include="server-bundle.zip">
+      <LogicalName>server-bundle.zip</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!-- Build-time only: lets the .NET SDK compile net48 without a machine-wide targeting pack. -->

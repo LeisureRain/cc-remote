@@ -109,16 +109,14 @@ namespace CCRemoteLauncher
 
         private void Initialize()
         {
-            _serverDir = ServerLocator.FindServerDir();
+            _serverDir = ServerLocator.EnsureServerDir(AppendLine);
             if (_serverDir == null)
             {
-                AppendLine("[启动器] 找不到服务端目录(server/src/index.js)。");
-                AppendLine("[启动器] 请确认本程序与 server 文件夹放在同一目录下。");
+                AppendLine("[启动器] 找不到服务端(内置或本地 server 目录均不可用)。");
                 UpdateState();
                 return;
             }
             _port = ServerLocator.ReadPort(_serverDir);
-            AppendLine($"[启动器] 服务端目录: {_serverDir}");
             UpdateState();
             StartServer(); // auto-start on launch
         }

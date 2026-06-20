@@ -1,15 +1,14 @@
 #!/usr/bin/env node
-// Build a self-contained Windows distribution of the CC Remote server + launcher.
+// Build the single-file Windows distribution of CC Remote.
 //
 //   node tools/package-win.mjs
 //
-// Produces  dist/CC-Remote-Server/  containing:
-//   CCRemoteLauncher.exe (+ .config)   the ~15 KB net4.8 launcher
-//   server/{src,package.json,config.json,node_modules}
+// Produces  dist/CCRemoteLauncher.exe  — ONE self-contained file. The entire server
+// (src + production node_modules + default config.json) is embedded inside the exe and
+// extracted to %LOCALAPPDATA%\CC-Remote\server on first run.
 //
-// The target machine needs Windows 10/11 (built-in .NET Framework 4.8) and Node.js
-// on PATH (already true on any box with the `claude` CLI installed). Zip the folder
-// and ship it — no installer required.
+// The target machine still needs Node.js + the `claude` CLI on PATH — the exe drives the
+// local claude CLI, it does not replace it. (Any box with `claude` installed already has Node.)
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,8 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const launcherDir = path.join(repoRoot, 'launcher');
-const serverDir = path.join(repoRoot, 'server');
-const distRoot = path.join(repoRoot, 'dist', 'CC-Remote-Server');
+const distRoot = path.join(repoRoot, 'dist');
 
 function run(cmd, cwd) {
   console.log(`\n> ${cmd}  (in ${path.relative(repoRoot, cwd) || '.'})`);
@@ -29,8 +27,12 @@ function run(cmd, cwd) {
 // 1) Sync versions from the root VERSION file.
 run('node tools/sync-version.mjs', repoRoot);
 
-// 2) Build the launcher (net48 -> tiny exe).
-run('dotnet build -c Release', launcherDir);
+// 2) Embed the whole server into a zip resource.
+run('node tools/build-server-bundle.mjs', repoRoot);
+
+// 3) Build the launcher (picks up server-bundle.zip as an embedded resource).
+//    Force a rebuild so the freshly built bundle is embedded.
+run('dotnet build -c Release -t:Rebuild', launcherDir);
 
 const outDir = path.join(launcherDir, 'bin', 'Release', 'net48');
 const exe = path.join(outDir, 'CCRemoteLauncher.exe');
@@ -39,26 +41,13 @@ if (!fs.existsSync(exe)) {
   process.exit(1);
 }
 
-// 3) Reset the dist folder.
+// 4) Emit the single exe (+ its .config) to dist/.
 fs.rmSync(distRoot, { recursive: true, force: true });
 fs.mkdirSync(distRoot, { recursive: true });
-
-// 4) Copy the launcher exe (+ .config if present).
 fs.copyFileSync(exe, path.join(distRoot, 'CCRemoteLauncher.exe'));
 const cfg = exe + '.config';
 if (fs.existsSync(cfg)) fs.copyFileSync(cfg, path.join(distRoot, 'CCRemoteLauncher.exe.config'));
 
-// 5) Stage the server (source + config only — never sessions/profiles/node_modules).
-const stagedServer = path.join(distRoot, 'server');
-fs.mkdirSync(stagedServer, { recursive: true });
-fs.cpSync(path.join(serverDir, 'src'), path.join(stagedServer, 'src'), { recursive: true });
-fs.copyFileSync(path.join(serverDir, 'package.json'), path.join(stagedServer, 'package.json'));
-fs.copyFileSync(path.join(serverDir, 'config.json'), path.join(stagedServer, 'config.json'));
-const lock = path.join(serverDir, 'package-lock.json');
-if (fs.existsSync(lock)) fs.copyFileSync(lock, path.join(stagedServer, 'package-lock.json'));
-
-// 6) Install production deps into the staged server (pure JS: ws + uuid).
-run('npm install --omit=dev --no-audit --no-fund', stagedServer);
-
-console.log(`\n[package] done -> ${path.relative(repoRoot, distRoot)}`);
-console.log('[package] zip this folder and ship it. Double-click CCRemoteLauncher.exe to run.');
+const kb = Math.round(fs.statSync(exe).size / 1024);
+console.log(`\n[package] done -> dist/CCRemoteLauncher.exe (${kb} KB, server embedded)`);
+console.log('[package] ship this single exe. Target needs Node.js + claude CLI on PATH.');
