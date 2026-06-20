@@ -155,5 +155,60 @@ namespace CCRemoteLauncher
             }
             return 11199;
         }
+
+        /// <summary>
+        /// Read the "workspace" value from &lt;serverDir&gt;/config.json (JSON-unescaped).
+        /// Empty string means "no restriction".
+        /// </summary>
+        public static string ReadWorkspace(string serverDir)
+        {
+            try
+            {
+                string cfg = Path.Combine(serverDir, "config.json");
+                if (File.Exists(cfg))
+                {
+                    string text = File.ReadAllText(cfg);
+                    Match m = Regex.Match(text, "\"workspace\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"");
+                    if (m.Success)
+                    {
+                        // Unescape the JSON string (paths use \\ for backslashes).
+                        return m.Groups[1].Value.Replace("\\\\", "\\").Replace("\\\"", "\"").Replace("\\/", "/");
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// Write back only "port" and "workspace" in &lt;serverDir&gt;/config.json, preserving
+        /// every other field and the file's formatting. Uses MatchEvaluators so path
+        /// characters ($, \) are never reinterpreted.
+        /// </summary>
+        public static void SaveConfig(string serverDir, int port, string workspace)
+        {
+            string cfg = Path.Combine(serverDir, "config.json");
+            string text = File.ReadAllText(cfg);
+
+            text = Regex.Replace(text, "(\"port\"\\s*:\\s*)\\d+",
+                m => m.Groups[1].Value + port);
+
+            string esc = (workspace ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"");
+            if (Regex.IsMatch(text, "\"workspace\"\\s*:\\s*\"(?:[^\"\\\\]|\\\\.)*\""))
+            {
+                text = Regex.Replace(text, "(\"workspace\"\\s*:\\s*\")(?:[^\"\\\\]|\\\\.)*(\")",
+                    m => m.Groups[1].Value + esc + m.Groups[2].Value);
+            }
+            else
+            {
+                // No workspace key present — insert one right after the opening brace.
+                text = new Regex("\\{").Replace(text, "{\r\n  \"workspace\": \"" + esc + "\",", 1);
+            }
+
+            File.WriteAllText(cfg, text);
+        }
     }
 }

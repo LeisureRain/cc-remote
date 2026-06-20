@@ -23,6 +23,7 @@ namespace CCRemoteLauncher
         private readonly Button _btnRestart;
         private readonly Button _btnClear;
         private readonly Button _btnOpenDir;
+        private readonly Button _btnSettings;
         private readonly Label _status;
 
         private Process _proc;
@@ -56,9 +57,10 @@ namespace CCRemoteLauncher
             _btnStart = MakeButton("启动服务", (s, e) => StartServer());
             _btnStop = MakeButton("停止服务", (s, e) => StopServer(restart: false));
             _btnRestart = MakeButton("重启服务", (s, e) => RestartServer());
+            _btnSettings = MakeButton("设置", (s, e) => OnSettings());
             _btnClear = MakeButton("清空日志", (s, e) => _log.Clear());
             _btnOpenDir = MakeButton("打开服务端目录", (s, e) => OpenServerDir());
-            bar.Controls.AddRange(new Control[] { _btnStart, _btnStop, _btnRestart, _btnClear, _btnOpenDir });
+            bar.Controls.AddRange(new Control[] { _btnStart, _btnStop, _btnRestart, _btnSettings, _btnClear, _btnOpenDir });
 
             // --- status line ---
             _status = new Label
@@ -254,6 +256,7 @@ namespace CCRemoteLauncher
             _btnStop.Enabled = running;
             _btnRestart.Enabled = running;
             _btnOpenDir.Enabled = _serverDir != null;
+            _btnSettings.Enabled = _serverDir != null;
 
             if (running)
             {
@@ -272,6 +275,43 @@ namespace CCRemoteLauncher
             if (_serverDir == null) return;
             try { Process.Start("explorer.exe", _serverDir); }
             catch (Exception ex) { AppendLine("[启动器] 打开目录失败: " + ex.Message); }
+        }
+
+        private void OnSettings()
+        {
+            if (_serverDir == null) return;
+
+            int curPort = ServerLocator.ReadPort(_serverDir);
+            string curWs = ServerLocator.ReadWorkspace(_serverDir);
+
+            using (var dlg = new SettingsForm(curPort, curWs))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                if (dlg.Port == curPort && dlg.Workspace == curWs) return;
+
+                try
+                {
+                    ServerLocator.SaveConfig(_serverDir, dlg.Port, dlg.Workspace);
+                    _port = dlg.Port;
+                    string ws = string.IsNullOrEmpty(dlg.Workspace) ? "(不限制)" : dlg.Workspace;
+                    AppendLine($"[启动器] 配置已更新:端口={dlg.Port},工作区={ws}");
+                }
+                catch (Exception ex)
+                {
+                    AppendLine("[启动器] 保存配置失败: " + ex.Message);
+                    return;
+                }
+
+                if (IsRunning)
+                {
+                    AppendLine("[启动器] 重启服务以应用新配置 …");
+                    RestartServer();
+                }
+                else
+                {
+                    UpdateState();
+                }
+            }
         }
 
         private void AppendLine(string line)
