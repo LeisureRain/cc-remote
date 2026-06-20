@@ -37,6 +37,7 @@ namespace CCRemoteLauncher
                 : "?";
 
             Text = $"CC Remote 服务端启动器  v{version}";
+            TryLoadIcon();
             Width = 820;
             Height = 540;
             MinimumSize = new Size(560, 360);
@@ -105,6 +106,21 @@ namespace CCRemoteLauncher
             };
             b.Click += onClick;
             return b;
+        }
+
+        private void TryLoadIcon()
+        {
+            try
+            {
+                using (var s = Assembly.GetExecutingAssembly().GetManifestResourceStream("app.ico"))
+                {
+                    if (s != null) Icon = new Icon(s);
+                }
+            }
+            catch
+            {
+                // non-fatal — default icon is fine
+            }
         }
 
         private void Initialize()

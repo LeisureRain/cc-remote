@@ -13,9 +13,17 @@
     <Product>CC Remote Launcher</Product>
     <Company>CC Remote</Company>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
+
+  <!-- App icon (matches the Android app); embedded so the window/taskbar use it too. -->
+  <ItemGroup>
+    <EmbeddedResource Include="app.ico">
+      <LogicalName>app.ico</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
 
   <!-- WinForms on .NET Framework 4.8: reference the framework assemblies directly. -->
   <ItemGroup>
