@@ -58,15 +58,17 @@ npm start
 
 #### Windows：一键启动器
 
-为不熟悉命令行的 Windows 用户提供了一个极轻量的图形启动器（`launcher/`，exe 仅 ~15 KB，
-目标 .NET Framework 4.8 —— Windows 10/11 系统自带，无需安装运行时）。它负责启动 / 停止 / 重启服务端进程，
-并实时显示日志。打包成可直接分发的文件夹：
+为不熟悉命令行的 Windows 用户提供了一个极轻量的图形启动器（`launcher/`）。**整个服务端被嵌入在一个
+约 160 KB 的单 exe 里**（首次运行时释放到 `%LOCALAPPDATA%\CC-Remote`）——用户只下载这一个文件，
+不需要文件夹，也不需要安装运行时（目标 .NET Framework 4.8 为 Windows 10/11 系统自带）。它负责启动 /
+停止 / 重启服务端进程，并实时显示日志。打包：
 
 ```bash
-node tools/package-win.mjs   # -> dist/CC-Remote-Server/（压缩后分发）
+node tools/package-win.mjs   # -> dist/CCRemoteLauncher.exe（发这一个文件即可）
 ```
 
-目标机器只需 PATH 中有 Node.js 和 `claude` CLI。详见 `launcher/README.md`。
+目标机器只需 PATH 中有 Node.js 和 `claude` CLI（服务端真正干活是调用本机的 claude，exe 替代不了它）。
+详见 `launcher/README.md`。
 
 ### Android
 

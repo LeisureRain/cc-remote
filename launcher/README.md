@@ -3,8 +3,8 @@
 一个极轻量的 Windows 桌面程序,用来在普通用户的电脑上一键启动 / 停止 CC Remote 服务端,
 并实时查看服务端日志 —— 不需要会用命令行。
 
-- **极小体积**:目标 .NET Framework 4.8(Windows 10 1903+/11 系统自带),exe 仅 ~15 KB,
-  无需安装任何运行时。
+- **单文件分发**:整个服务端(源码 + 生产依赖 + 默认配置)被**嵌入到 exe 内**,exe 约 ~160 KB。
+  用户只需下载这一个 exe,无需任何其它文件。目标 .NET Framework 4.8 为 Windows 10/11 系统自带,无需安装运行时。
 - **主界面**:启动服务 / 停止服务 / 重启服务 / 清空日志 / 打开服务端目录 + 实时日志框 + 运行状态行。
 - **职责单一**:只管"服务端进程"的起停。会话级操作(创建 / 停止 / 重启 / 删除会话)请在 Android App 中进行。
 
@@ -12,27 +12,19 @@
 
 - Windows 10 (1903+) 或 Windows 11(自带 .NET Framework 4.8)。
 - 已安装 **Node.js**,且 `node` 在 PATH 中(装了 `claude` CLI 的机器通常已满足)。
-- 已安装并登录 **`claude` CLI**(服务端会调用它)。
+- 已安装并登录 **`claude` CLI**(服务端真正干活是调用本机的 claude,exe 不能替代它)。
 
-## 运行方式(分发包)
+## 运行方式
 
-把启动器和 `server/` 放在同一目录下:
+直接双击 `CCRemoteLauncher.exe` —— 仅此一个文件。首次运行时,程序会把内置的服务端释放到
+用户数据目录,然后用系统 `node` 拉起它,并把日志实时显示在窗口里。关闭窗口会连同子进程
+(node + claude)一起结束。
 
-```
-CC-Remote-Server/
-  CCRemoteLauncher.exe
-  CCRemoteLauncher.exe.config
-  server/
-    src/...
-    node_modules/
-    package.json
-    config.json
-```
+- 服务端释放位置:`%LOCALAPPDATA%\CC-Remote\server\`(可写,无需管理员权限)。
+- `config.json`(端口等)、`sessions/`、`profiles/` 都在该目录下持久保存;**升级换新版 exe 时只刷新代码,不覆盖你改过的 `config.json`**。
+- 想改端口:编辑该目录下的 `config.json`(界面里"打开服务端目录"可直达),重启服务即可。
 
-双击 `CCRemoteLauncher.exe` 即可。程序会自动定位 `server/src/index.js`、读取 `config.json` 的端口、
-用系统 `node` 拉起服务端,并把日志实时显示在窗口里。关闭窗口会连同子进程(node + claude)一起结束。
-
-> 启动器按以下顺序查找服务端:① 与 exe 同级的 `server/`;② 逐级向上的 `server/`(开发布局)。
+> 若该 exe 没有内置服务端(纯 `dotnet build` 的开发构建),则回退为查找与 exe 同级 / 上层的 `server/` 目录。
 
 ## 从源码构建
 
@@ -41,20 +33,23 @@ CC-Remote-Server/
 ```bash
 cd launcher
 dotnet build -c Release
-# 产物:bin/Release/net48/CCRemoteLauncher.exe
+# 产物:bin/Release/net48/CCRemoteLauncher.exe(不含内置服务端,用于开发调试)
 ```
 
 构建只在编译期用到 `Microsoft.NETFramework.ReferenceAssemblies`(已在 NuGet 缓存),
 最终 exe 不含任何额外 DLL。
 
-## 打包分发包
+## 打包(生成可分发的单 exe)
 
 在仓库根目录:
 
 ```bash
 node tools/package-win.mjs
-# 产物:dist/CC-Remote-Server/(可直接压缩分发,整包约 2~3MB)
+# 1) 同步版本号  2) 把服务端打包成 server-bundle.zip 嵌入资源
+# 3) 重新编译  ->  dist/CCRemoteLauncher.exe(单文件,约 160 KB,已内置服务端)
 ```
+
+把 `dist/CCRemoteLauncher.exe` 直接发给用户即可。
 
 ## 版本号
 

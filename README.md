@@ -58,15 +58,17 @@ The server starts on `http://0.0.0.0:11199` by default. Open `http://<server-ip>
 
 #### Windows: one-click launcher
 
-For non-technical Windows users there's a tiny GUI launcher (`launcher/`, ~15 KB exe, targets the
-built-in .NET Framework 4.8 — no runtime install). It starts/stops/restarts the server process and
-shows its log live. Build a ready-to-ship folder with:
+For non-technical Windows users there's a tiny GUI launcher (`launcher/`). The **entire server is
+embedded inside a single ~160 KB exe** (extracted to `%LOCALAPPDATA%\CC-Remote` on first run) — users
+download one file, no folder, no runtime install (targets the built-in .NET Framework 4.8). It
+starts/stops/restarts the server process and shows its log live. Build it with:
 
 ```bash
-node tools/package-win.mjs   # -> dist/CC-Remote-Server/  (zip and share)
+node tools/package-win.mjs   # -> dist/CCRemoteLauncher.exe  (ship this one file)
 ```
 
-The target machine just needs Node.js + the `claude` CLI on PATH. See `launcher/README.md` for details.
+The target machine just needs Node.js + the `claude` CLI on PATH (the exe drives the local `claude`,
+it doesn't replace it). See `launcher/README.md` for details.
 
 ### Android
 
