@@ -743,7 +743,9 @@ public class MainActivity extends AppCompatActivity {
                 + "Author: romp\n"
                 + "Email: srpol@outlook.com\n\n"
                 + "Remote Claude Code via Android.\n"
-                + "Code from your couch.";
+                + "Code from your couch.\n\n"
+                + "Gitee:  https://gitee.com/romp/cc-remote\n"
+                + "GitHub: https://github.com/LeisureRain/cc-remote";
 
         new AlertDialog.Builder(this)
                 .setTitle("About")

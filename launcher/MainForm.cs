@@ -33,6 +33,7 @@ namespace CCRemoteLauncher
         private readonly Button _btnClear;
         private readonly Button _btnOpenDir;
         private readonly Button _btnSettings;
+        private readonly Button _btnAbout;
         private readonly Label _status;
 
         private Process _proc;
@@ -73,7 +74,8 @@ namespace CCRemoteLauncher
             _btnSettings = MakeButton("设置", (s, e) => OnSettings());
             _btnClear = MakeButton("清空日志", (s, e) => _log.Clear());
             _btnOpenDir = MakeButton("打开服务端目录", (s, e) => OpenServerDir());
-            bar.Controls.AddRange(new Control[] { _btnStart, _btnStop, _btnRestart, _btnSettings, _btnClear, _btnOpenDir });
+            _btnAbout = MakeButton("关于", (s, e) => OnAbout());
+            bar.Controls.AddRange(new Control[] { _btnStart, _btnStop, _btnRestart, _btnSettings, _btnClear, _btnOpenDir, _btnAbout });
 
             // --- status line ---
             _status = new Label
@@ -544,6 +546,24 @@ namespace CCRemoteLauncher
             if (_serverDir == null) return;
             try { Process.Start("explorer.exe", _serverDir); }
             catch (Exception ex) { AppendLine("[启动器] 打开目录失败: " + ex.Message); }
+        }
+
+        private void OnAbout()
+        {
+            string version = Assembly.GetExecutingAssembly().GetName().Version is Version v
+                ? $"{v.Major}.{v.Minor}.{v.Build}"
+                : "?";
+            string text = string.Join(Environment.NewLine,
+                $"CC Remote 启动器 v{version}",
+                "",
+                "远程 Claude Code —— 用手机控制你的桌面 AI 编程助手。",
+                "",
+                "作者：  romp",
+                "邮箱：  srpol@outlook.com",
+                "",
+                "Gitee:  https://gitee.com/romp/cc-remote",
+                "GitHub: https://github.com/LeisureRain/cc-remote");
+            MessageBox.Show(this, text, "关于 CC Remote", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void OnSettings()
