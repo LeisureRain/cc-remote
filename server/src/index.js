@@ -20,6 +20,27 @@ const { ACTIVE_SETTINGS_FILE } = require('./claude-session');
 const ccSwitch = require('./cc-switch');
 
 // ============================================================
+// Logging — timestamp + level prefix on every console line
+// ============================================================
+// Wrapping console.* once here (instead of editing every call site) prefixes
+// logs from EVERY module — session-manager, claude-session — with a local
+// HH:MM:SS timestamp and a level tag. This makes both the terminal and the
+// Windows launcher's log view far easier to scan. `logRaw()` bypasses the
+// prefix for the startup banner so it stays visually clean.
+const logRaw = console.log.bind(console);
+(function installLogging() {
+  const pad = (n) => String(n).padStart(2, '0');
+  const stamp = () => {
+    const d = new Date();
+    return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  };
+  const wrap = (orig, level) => (...args) => orig(`[${stamp()}] ${level}`, ...args);
+  console.log = wrap(logRaw, 'INFO ');
+  console.warn = wrap(console.warn.bind(console), 'WARN ');
+  console.error = wrap(console.error.bind(console), 'ERROR');
+})();
+
+// ============================================================
 // Configuration
 // ============================================================
 const CONFIG_FILE = path.join(__dirname, '..', 'config.json');
@@ -309,6 +330,7 @@ const httpServer = http.createServer((req, res) => {
     res.end(JSON.stringify({
       status: 'ok',
       auth: true,
+      clients: wss.clients.size,
       sessions: sessionManager.listSessions(),
       uptime: process.uptime(),
     }));
@@ -328,6 +350,7 @@ h1{color:#ff6b6b}.status{color:#51cf66}a{color:#74c0fc}</style>
 <p>Status: <span class="status">Running</span></p>
 <p>Port: ${CONFIG.port}</p>
 <p>Active sessions: ${sessionManager.listSessions().length}</p>
+<p>Connected clients: ${wss.clients.size}</p>
 ${CONFIG.workspace ? `<p>Workspace: ${CONFIG.workspace}</p>` : ''}
 <p><a href="/health">Health Check (JSON)</a></p>
 </body></html>`);
@@ -354,7 +377,7 @@ wss.on('connection', (ws, req) => {
     return;
   }
 
-  console.log(`[Server] Client connected from ${clientAddr}`);
+  console.log(`[Server] Client connected from ${clientAddr} (total clients: ${wss.clients.size})`);
   let currentSessionId = null;
 
   ws.on('message', (rawData) => {
@@ -372,7 +395,7 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
-    console.log(`[Server] Client disconnected from ${clientAddr}`);
+    console.log(`[Server] Client disconnected from ${clientAddr} (total clients: ${wss.clients.size})`);
     if (currentSessionId) {
       const session = sessionManager.getSession(currentSessionId);
       if (session) session.removeClient(ws);
@@ -512,6 +535,7 @@ wss.on('connection', (ws, req) => {
         }
         currentSessionId = sessionId;
         session.addClient(ws);
+        console.log(`[Server] ${clientAddr} watching session ${sessionId} (${session.getClientCount()} client(s) on it)`);
         sendToClient(ws, { type: 'session_connected', session_id: sessionId,
           directory: session.directory, status: session.isRunning ? 'running' : 'exited',
           exitCode: session.exitCode });
@@ -791,15 +815,15 @@ if (ccSwitch.isAvailable()) {
 }
 
 httpServer.listen(CONFIG.port, CONFIG.host, () => {
-  console.log('══════════════════════════════════════════════');
-  console.log('  🦞 CC Remote Server');
-  console.log('══════════════════════════════════════════════');
-  console.log(`  HTTP:      http://${CONFIG.host === '0.0.0.0' ? '127.0.0.1' : CONFIG.host}:${CONFIG.port}`);
-  console.log(`  WebSocket: ws://${CONFIG.host === '0.0.0.0' ? '127.0.0.1' : CONFIG.host}:${CONFIG.port}`);
-  console.log(`  Max Sessions: ${CONFIG.maxSessions}`);
-  if (CONFIG.workspace) console.log(`  Workspace:   ${CONFIG.workspace}`);
-  console.log(`  Auth token: ${AUTH_TOKEN}`);
-  console.log('══════════════════════════════════════════════');
+  logRaw('══════════════════════════════════════════════');
+  logRaw('  🦞 CC Remote Server');
+  logRaw('══════════════════════════════════════════════');
+  logRaw(`  HTTP:      http://${CONFIG.host === '0.0.0.0' ? '127.0.0.1' : CONFIG.host}:${CONFIG.port}`);
+  logRaw(`  WebSocket: ws://${CONFIG.host === '0.0.0.0' ? '127.0.0.1' : CONFIG.host}:${CONFIG.port}`);
+  logRaw(`  Max Sessions: ${CONFIG.maxSessions}`);
+  if (CONFIG.workspace) logRaw(`  Workspace:   ${CONFIG.workspace}`);
+  logRaw(`  Auth token: ${AUTH_TOKEN}`);
+  logRaw('══════════════════════════════════════════════');
 });
 
 // ============================================================
