@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Build the single-file Windows distribution of CC Remote.
 //
-//   node tools/package-win.mjs
+//   node package-win.mjs
 //
 // Produces  dist/CCRemoteLauncher.exe  — ONE self-contained file. The entire server
 // (src + production node_modules + default config.json) is embedded inside the exe and
@@ -15,7 +15,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 const launcherDir = path.join(repoRoot, 'launcher');
 const distRoot = path.join(repoRoot, 'dist');
 

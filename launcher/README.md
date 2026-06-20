@@ -44,7 +44,7 @@ dotnet build -c Release
 在仓库根目录:
 
 ```bash
-node tools/package-win.mjs
+node package-win.mjs
 # 1) 同步版本号  2) 把服务端打包成 server-bundle.zip 嵌入资源
 # 3) 重新编译  ->  dist/CCRemoteLauncher.exe(单文件,约 160 KB,已内置服务端)
 ```

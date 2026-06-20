@@ -64,7 +64,7 @@ download one file, no folder, no runtime install (targets the built-in .NET Fram
 starts/stops/restarts the server process and shows its log live. Build it with:
 
 ```bash
-node tools/package-win.mjs   # -> dist/CCRemoteLauncher.exe  (ship this one file)
+node package-win.mjs   # -> dist/CCRemoteLauncher.exe  (ship this one file)
 ```
 
 The target machine just needs Node.js + the `claude` CLI on PATH (the exe drives the local `claude`,
@@ -77,6 +77,12 @@ Open the `android/` directory in Android Studio, or build from the command line:
 ```bash
 cd android
 ./gradlew assembleDebug
+```
+
+Or build the signed release APK straight into `dist/` from the repo root:
+
+```bash
+node package-android.mjs   # -> dist/cc-remote-v<VERSION>.apk
 ```
 
 Install the APK on your device. Configure the server IP and port in Settings (default port **11199**).

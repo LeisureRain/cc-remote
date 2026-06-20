@@ -64,7 +64,7 @@ npm start
 停止 / 重启服务端进程，并实时显示日志。打包：
 
 ```bash
-node tools/package-win.mjs   # -> dist/CCRemoteLauncher.exe（发这一个文件即可）
+node package-win.mjs   # -> dist/CCRemoteLauncher.exe（发这一个文件即可）
 ```
 
 目标机器只需 PATH 中有 Node.js 和 `claude` CLI（服务端真正干活是调用本机的 claude，exe 替代不了它）。
@@ -77,6 +77,12 @@ node tools/package-win.mjs   # -> dist/CCRemoteLauncher.exe（发这一个文件
 ```bash
 cd android
 ./gradlew assembleDebug
+```
+
+或在仓库根目录一键打出已签名的发布版 APK 到 `dist/`：
+
+```bash
+node package-android.mjs   # -> dist/cc-remote-v<VERSION>.apk
 ```
 
 将 APK 安装到设备上。在设置中配置服务器 IP 和端口（默认端口 **11199**）。

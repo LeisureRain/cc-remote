@@ -39,8 +39,13 @@ A tiny .NET WinForms desktop app that lets non-technical Windows users run the s
 - `CCRemoteLauncher.csproj` — `net48`, `WinExe`; references `System.Windows.Forms`/`System.Drawing`/`System.IO.Compression(.FileSystem)`/`System.Web.Extensions` (the last for `JavaScriptSerializer`, used to parse `/health`); embeds `server-bundle.zip` (conditional, so a bare `dotnet build` still works). Build-only `Microsoft.NETFramework.ReferenceAssemblies` lets the .NET 8 SDK compile net48 with no machine-wide targeting pack. `app.manifest` declares PerMonitorV2 DPI + Win10/11.
 - **Runtime requirement:** the target still needs `node` + the `claude` CLI on PATH — the embedded server drives the local `claude`, it doesn't replace it.
 
+### Packaging (`package-*.mjs` at repo root)
+Two root-level packaging entry points produce the shippable artifacts into `dist/`:
+- `node package-win.mjs` runs sync-version → build-server-bundle → `dotnet build -t:Rebuild` → emits the single `dist/CCRemoteLauncher.exe` (server embedded).
+- `node package-android.mjs` runs sync-version → `gradlew assembleRelease` (signed with `android/ccremote.keystore`) → emits `dist/cc-remote-v<VERSION>.apk`.
+
 ### Versioning (`VERSION` + `tools/`)
-The repo-root `VERSION` file is the single source of truth for the human-facing version. `node tools/sync-version.mjs` propagates it to `server/package.json` (`version`), `launcher/CCRemoteLauncher.csproj` (`<Version>/<AssemblyVersion>/<FileVersion>`), and `android/app/build.gradle` (`versionName`). **`versionCode` is left untouched** — it must increase monotonically and is bumped manually. `tools/build-server-bundle.mjs` stages the server with production-only deps and zips it to `launcher/server-bundle.zip` (the embedded resource). `tools/package-win.mjs` runs sync-version → build-server-bundle → `dotnet build -t:Rebuild` → emits the single `dist/CCRemoteLauncher.exe`. Note: root `scripts/`, `package.json`, `package-lock.json` are gitignored, so repo-wide tooling lives in the tracked `tools/`; `launcher/server-bundle.zip` is gitignored (a build artifact).
+The repo-root `VERSION` file is the single source of truth for the human-facing version. `node tools/sync-version.mjs` propagates it to `server/package.json` (`version`), `launcher/CCRemoteLauncher.csproj` (`<Version>/<AssemblyVersion>/<FileVersion>`), and `android/app/build.gradle` (`versionName`). **`versionCode` is left untouched** — it must increase monotonically and is bumped manually. `tools/build-server-bundle.mjs` stages the server with production-only deps and zips it to `launcher/server-bundle.zip` (the embedded resource). The two `package-*.mjs` orchestrators live at the repo root (easy to find/run); their shared helpers (`sync-version`, `build-server-bundle`) stay in `tools/`. Note: root `scripts/`, `package.json`, `package-lock.json` are gitignored, so repo-wide tooling lives in the tracked `tools/`; `launcher/server-bundle.zip` is gitignored (a build artifact).
 
 ## WebSocket Protocol
 
@@ -118,7 +123,8 @@ dotnet build -c Release      # -> bin/Release/net48/CCRemoteLauncher.exe (~15 KB
 ```bash
 # from repo root:
 node tools/sync-version.mjs  # propagate VERSION to server/launcher/android
-node tools/package-win.mjs   # build the single dist/CCRemoteLauncher.exe (server embedded)
+node package-win.mjs         # build the single dist/CCRemoteLauncher.exe (server embedded)
+node package-android.mjs     # build the signed dist/cc-remote-v<VERSION>.apk
 ```
 
 ## Development Workflow
