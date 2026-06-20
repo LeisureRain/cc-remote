@@ -556,12 +556,25 @@ wss.on('connection', (ws, req) => {
         sendToClient(ws, { type: 'disconnected', session_id: sid });
         break;
       }
-      case 'kill_session': {
+      case 'stop_session': {
+        // Stop (pause) a session: terminate the process but keep it as a
+        // resumable, persisted "stopped" session (survives a server restart).
         const sid = message.session_id || currentSessionId;
         if (!sid) { sendToClient(ws, { type: 'error', message: 'No session specified' }); return; }
-        if (sessionManager.killSession(sid)) {
-          if (currentSessionId === sid) currentSessionId = null;
-          sendToClient(ws, { type: 'session_killed', session_id: sid });
+        if (sessionManager.stopSession(sid)) {
+          // session.stop() broadcasts session_stopped to all watching clients.
+        } else {
+          sendToClient(ws, { type: 'error', message: `Session ${sid} not found` });
+        }
+        break;
+      }
+
+      case 'resume_session': {
+        // Relaunch a stopped session's claude process (--resume).
+        const sid = message.session_id || currentSessionId;
+        if (!sid) { sendToClient(ws, { type: 'error', message: 'No session specified' }); return; }
+        if (sessionManager.resumeSession(sid)) {
+          // session.resume() broadcasts session_resumed; session_meta follows on init.
         } else {
           sendToClient(ws, { type: 'error', message: `Session ${sid} not found` });
         }

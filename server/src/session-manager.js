@@ -74,18 +74,33 @@ class SessionManager {
   }
 
   /**
-   * Kill and remove a session
+   * Stop (pause) a session: terminate its process but keep it in the map as a
+   * resumable, persisted "stopped" session so it survives a server restart and
+   * can be resumed later. Contrast with deleteSession (permanent removal).
    * @param {string} id
    * @returns {boolean}
    */
-  killSession(id) {
+  stopSession(id) {
     const session = this.sessions.get(id);
     if (!session) return false;
+    session.stop();
+    this.saveSession(session);   // persist stopped=true immediately
+    console.log(`[SessionManager] Stopped (paused) session ${id}`);
+    return true;
+  }
 
-    session.kill();
-    this.sessions.delete(id);
-    this.deleteSessionFile(id);
-    console.log(`[SessionManager] Killed and removed session ${id}`);
+  /**
+   * Resume a stopped session: relaunch its claude process (--resume) and persist
+   * the now-running state.
+   * @param {string} id
+   * @returns {boolean}
+   */
+  resumeSession(id) {
+    const session = this.sessions.get(id);
+    if (!session) return false;
+    session.resume();
+    this.saveSession(session);   // persist stopped=false
+    console.log(`[SessionManager] Resumed session ${id}`);
     return true;
   }
 
@@ -116,7 +131,7 @@ class SessionManager {
         id,
         directory: session.directory,
         createdAt: session.createdAt.toISOString(),
-        status: session.isRunning ? 'running' : 'exited',
+        status: session.isRunning ? 'running' : (session._stopped ? 'stopped' : 'exited'),
         exitCode: session.exitCode,
         clientCount: session.getClientCount(),
         bufferSize: session.getBufferSize(),
@@ -155,7 +170,8 @@ class SessionManager {
    */
   cleanup() {
     for (const [id, session] of this.sessions) {
-      if (!session.isRunning && session.getClientCount() === 0) {
+      // Keep user-stopped sessions: they are intentionally paused and resumable.
+      if (!session.isRunning && session.getClientCount() === 0 && !session._stopped) {
         this.sessions.delete(id);
         this.deleteSessionFile(id);
         console.log(`[SessionManager] Cleaned up exited session ${id}`);

@@ -98,6 +98,7 @@ class ClaudeSession extends EventEmitter {
     this._resume = false;         // first launch creates the session; restarts resume it
     this._noConvoSeen = false;    // set when stderr reports a failed --resume lookup
     this._freshFallbackTried = false; // guards the resume→fresh recovery to once per start
+    this._stopped = false;        // true when the user has Stopped (paused) this session
 
     this._start();
   }
@@ -117,6 +118,9 @@ class ClaudeSession extends EventEmitter {
       // resumed session follows the active profile rather than a stale recording.
       chatHistory: this._chatHistory,
       pending: this._chatPending,
+      // Whether the user Stopped (paused) this session. Persisted so a stopped
+      // session stays stopped across a server restart instead of auto-resuming.
+      stopped: this._stopped,
     };
   }
 
@@ -151,13 +155,22 @@ class ClaudeSession extends EventEmitter {
     session._resume = true;
     session._noConvoSeen = false;
     session._freshFallbackTried = false;
+    session._stopped = !!data.stopped;
 
     // Trim chat history if over limit
     if (session._chatHistory.length > MAX_CHAT_HISTORY) {
       session._chatHistory = session._chatHistory.slice(-MAX_CHAT_HISTORY);
     }
 
-    session._start();
+    // A session the user Stopped stays stopped across a restart (Option B): keep
+    // it in the list as a resumable, paused session — do NOT spawn a process.
+    // Resuming later (resume()) launches it with --resume to restore context.
+    if (session._stopped) {
+      session.isRunning = false;
+      session.exitCode = 0;
+    } else {
+      session._start();
+    }
     return session;
   }
 
@@ -478,21 +491,99 @@ class ClaudeSession extends EventEmitter {
   // Client / lifecycle management
   // ==========================================================
 
+  /**
+   * Hard kill — terminate the process for good. Used by delete (the persisted
+   * file is being purged) and by server shutdown. Detaches child + session
+   * listeners BEFORE killing so the async 'exit' event can't trigger a resave
+   * that would resurrect a just-deleted session.
+   */
   kill() {
     this.isRunning = false;
-    if (this._stdoutRl) { try { this._stdoutRl.close(); } catch (e) {} }
-    if (this.child && this.child.pid) {
-      if (process.platform === 'win32') {
-        // Kill the whole tree (shell launcher + claude) — child.kill() alone
-        // would only reach the shell on Windows.
-        try { spawn('taskkill', ['/PID', String(this.child.pid), '/T', '/F']); } catch (e) {}
-      } else {
-        try { this.child.stdin.end(); } catch (e) {}
-        try { this.child.kill('SIGTERM'); } catch (e) {}
+    this._chatBusy = false;
+    this._chatPending = null;
+    if (this._stdoutRl) { try { this._stdoutRl.close(); } catch (e) {} this._stdoutRl = null; }
+
+    const child = this.child;
+    this.child = null;
+    if (child) {
+      try {
+        child.removeAllListeners('exit');
+        child.removeAllListeners('error');
+        if (child.stdout) child.stdout.removeAllListeners('data');
+      } catch (e) {}
+      if (child.pid) {
+        if (process.platform === 'win32') {
+          // Kill the whole tree (shell launcher + claude) — child.kill() alone
+          // would only reach the shell on Windows.
+          try { spawn('taskkill', ['/PID', String(child.pid), '/T', '/F']); } catch (e) {}
+        } else {
+          try { child.stdin.end(); } catch (e) {}
+          try { child.kill('SIGTERM'); } catch (e) {}
+        }
       }
     }
     this._broadcast({ type: 'session_killed', session_id: this.id });
     this.clients.clear();
+    this.removeAllListeners();
+  }
+
+  /**
+   * Stop (pause) the session: terminate the claude process but KEEP the session
+   * as a resumable, persisted "stopped" state. The chat history and persisted
+   * file are preserved; resume() can relaunch it later with --resume. Clients
+   * stay connected so they can see the stopped status and resume in place.
+   */
+  stop() {
+    this._stopped = true;
+    this.isRunning = false;
+    this.exitCode = 0;
+    this._chatBusy = false;
+    this._chatPending = null;
+    this._streaming = false;
+    this._turnText = '';
+    this._activeToolCount = 0;
+    this._toolPhaseHasText = false;
+    if (this._stdoutRl) { try { this._stdoutRl.close(); } catch (e) {} this._stdoutRl = null; }
+
+    // Detach child listeners so the async 'exit' doesn't broadcast session_exited
+    // or trip the resume→fresh fallback — we own the lifecycle here and emit
+    // session_stopped instead. The SessionManager saves the stopped state.
+    const child = this.child;
+    this.child = null;
+    if (child) {
+      try {
+        child.removeAllListeners('exit');
+        child.removeAllListeners('error');
+        if (child.stdout) child.stdout.removeAllListeners('data');
+      } catch (e) {}
+      if (child.pid) {
+        if (process.platform === 'win32') {
+          try { spawn('taskkill', ['/PID', String(child.pid), '/T', '/F']); } catch (e) {}
+        } else {
+          try { child.stdin.end(); } catch (e) {}
+          try { child.kill('SIGTERM'); } catch (e) {}
+        }
+      }
+    }
+    console.log(`[ClaudeSession ${this.id}] stopped (paused, resumable)`);
+    this._broadcast({ type: 'session_stopped', session_id: this.id });
+  }
+
+  /**
+   * Resume a stopped session: relaunch the claude process with --resume so it
+   * picks up the conversation from disk. No-op if already running. Broadcasts
+   * session_resumed; the fresh session_meta arrives on the process's init.
+   */
+  resume() {
+    if (this.isRunning) return;
+    this._stopped = false;
+    this._resume = true;
+    this._freshFallbackTried = false;
+    this._chatBusy = false;
+    this._chatPending = null;
+    this._start();
+    this._broadcast({ type: 'session_resumed', session_id: this.id });
+    console.log(`[ClaudeSession ${this.id}] resumed`);
   }
 
   addClient(ws) {
