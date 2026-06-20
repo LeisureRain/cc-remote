@@ -52,6 +52,7 @@ Now you can vibe code from literally anywhere with mobile data or Wi-Fi — your
 - **Persistent sessions** — sessions survive a server restart and resume with full context (`--resume`); a paused session stays paused across reboots
 - **Provider & model switching** — switch the AI provider/model your sessions use on the fly, straight from the app, with automatic [CC Switch](https://github.com/farion1231/cc-switch) profile discovery
 - **Markdown rendering** — full Markdown support including tables, code blocks, and links
+- **Live activity view** — a status bar shows what Claude is doing right now (thinking / running a tool with its arguments / writing) with an elapsed-time counter, turns amber if a turn goes silent so a hang is distinguishable from a long step, and lets you interrupt at any point in the turn; tool calls leave a browsable `⚙ name · detail` trail in the chat
 - **Workspace restriction** — optionally lock the server to a specific directory tree
 - **Directory browser** — browse the server filesystem from the Android app to pick a working directory, with recent paths and quick paths
 - **Background persistence** — a foreground service keeps the WebSocket connection alive even when the app is in the background
