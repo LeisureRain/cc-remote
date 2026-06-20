@@ -4,7 +4,7 @@
 //   node tools/make-icons.mjs
 //
 // - launcher/app.ico   (multi-resolution ICO for Windows .NET)
-// - android mipmaps    (ldpi → xxxhdpi PNGs for the app launcher icon)
+// - android mipmaps    (mdpi → xxxhdpi PNGs for the app launcher icon)
 //
 // Requires sharp (in root node_modules).
 
@@ -22,55 +22,98 @@ if (!fs.existsSync(src)) {
 }
 
 // ================================================================
-// Buffered-ICO builder (PNG frames only — no BMP legacy frames).
-// The ICO format is:  6-byte header + N×16-byte dir entries + image data.
-// Every OS that ships together with .NET Framework 4.8 also reads
-// PNG-compressed ICO frames (Vista+).
+// ICO helpers — produce both PNG and BMP ICOs.
+//
+//   - PNG ICO: compact, used as a .NET EmbeddedResource for the window
+//     icon (MainForm.TryLoadIcon loads it via GetManifestResourceStream).
+//   - BMP ICO: classic uncompressed frames; required by Roslyn's
+//     /win32icon switch for the PE native icon (Explorer, taskbar).
+//     Roslyn does NOT reliably embed PNG-in-ICO frames into .rsrc.
 // ================================================================
-async function writeIco(outPath, sizes) {
-  const frames = [];
-  for (const size of sizes) {
-    const buf = await sharp(src).resize(size, size).png().toBuffer();
-    frames.push({ w: size === 256 ? 0 : size, h: size === 256 ? 0 : size, buf });
-  }
 
-  // Header: reserved(2)=0, type(2)=1, count(2)
+function icoPack(frames) {
   const count = frames.length;
-  const header = Buffer.alloc(6);
-  header.writeUInt16LE(0, 0); // reserved
-  header.writeUInt16LE(1, 2); // type = ICO
-  header.writeUInt16LE(count, 4);
+  const hdr = Buffer.alloc(6);
+  hdr.writeUInt16LE(0, 0);   // reserved
+  hdr.writeUInt16LE(1, 2);   // type = ICO
+  hdr.writeUInt16LE(count, 4);
+  let off = 6 + count * 16;
+  const dirs = frames.map(f => {
+    const e = Buffer.alloc(16);
+    e.writeUInt8(f.w, 0);
+    e.writeUInt8(f.h, 1);
+    e.writeUInt8(0, 2);                // palette colours
+    e.writeUInt8(0, 3);                // reserved
+    e.writeUInt16LE(1, 4);             // color planes
+    e.writeUInt16LE(32, 6);            // bpp
+    e.writeUInt32LE(f.buf.length, 8);   // size
+    e.writeUInt32LE(off, 12);          // offset
+    off += f.buf.length;
+    return e;
+  });
+  return Buffer.concat([hdr, ...dirs, ...frames.map(f => f.buf)]);
+}
 
-  // Directory entries (16 bytes each) + image data
-  let offset = 6 + count * 16;
-  const dirs = [];
-  for (const f of frames) {
-    const entry = Buffer.alloc(16);
-    entry.writeUInt8(f.w, 0);          // width  (0 = 256)
-    entry.writeUInt8(f.h, 1);          // height (0 = 256)
-    entry.writeUInt8(0, 2);            // palette
-    entry.writeUInt8(0, 3);            // reserved
-    entry.writeUInt16LE(1, 4);         // color planes
-    entry.writeUInt16LE(32, 6);        // bpp
-    entry.writeUInt32LE(f.buf.length, 8); // size
-    entry.writeUInt32LE(offset, 12);   // offset
-    offset += f.buf.length;
-    dirs.push(entry);
+function icoDim(size) { return size === 256 ? 0 : size; }
+
+// BMP DIB frame for Win32 PE icon resource.
+// ICO convention: BITMAPINFOHEADER.biHeight is doubled.
+function icoBmpFrame(rgba, w, h) {
+  const rb = w * 4;
+  const px = Buffer.alloc(rb * h);
+  for (let y = 0; y < h; y++) {
+    const sr = y * rb, dr = (h - 1 - y) * rb;
+    for (let x = 0; x < w; x++) {
+      const si = sr + x * 4, di = dr + x * 4;
+      px[di] = rgba[si + 2]; px[di + 1] = rgba[si + 1];
+      px[di + 2] = rgba[si]; px[di + 3] = rgba[si + 3];
+    }
   }
+  const bi = Buffer.alloc(40);
+  bi.writeUInt32LE(40, 0); bi.writeInt32LE(w, 4); bi.writeInt32LE(h * 2, 8);
+  bi.writeUInt16LE(1, 12); bi.writeUInt16LE(32, 14);
+  bi.writeUInt32LE(px.length, 20);
+  return Buffer.concat([bi, px]);
+}
 
-  const parts = [header, ...dirs, ...frames.map(f => f.buf)];
-  fs.writeFileSync(outPath, Buffer.concat(parts));
-  console.log(`[icons]   ${path.relative(repoRoot, outPath)} (${sizes.length} frames: ${sizes.join(',')})`);
+async function makeBmpFrames(sizes) {
+  const frames = [];
+  for (const s of sizes) {
+    const { data, info } = await sharp(src).resize(s, s).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const buf = icoBmpFrame(data, info.width, info.height);
+    frames.push({ w: icoDim(s), h: icoDim(s), buf });
+  }
+  return frames;
+}
+
+async function makePngFrames(sizes) {
+  const frames = [];
+  for (const s of sizes) {
+    const buf = await sharp(src).resize(s, s).png().toBuffer();
+    frames.push({ w: icoDim(s), h: icoDim(s), buf });
+  }
+  return frames;
 }
 
 // ================================================================
 // Main
 // ================================================================
 
-// 1) Windows .ico  — sizes that cover all DPI levels + taskbar + window
-const icoSizes = [16, 24, 32, 48, 64, 256];
-const icoPath = path.join(repoRoot, 'launcher', 'app.ico');
-await writeIco(icoPath, icoSizes);
+// 1) Windows icons — two ICO files with different purposes:
+//    - app.ico (PNG frames):  embedded managed resource for the window icon
+//    - app-win32.ico (BMP frames):  /win32icon for the PE native icon (Explorer)
+const launcherDir = path.join(repoRoot, 'launcher');
+const icoAll = [16, 24, 32, 48, 64, 256];
+const pngIco = icoPack(await makePngFrames(icoAll));
+fs.writeFileSync(path.join(launcherDir, 'app.ico'), pngIco);
+const kB = (pngIco.length / 1024).toFixed(1);
+console.log(`[icons]   launcher/app.ico (${icoAll.length} frames PNG: ${icoAll.join(',')} — ${kB} KB)`);
+
+const icoWin32 = [16, 32, 48];
+const bmpIco = icoPack(await makeBmpFrames(icoWin32));
+fs.writeFileSync(path.join(launcherDir, 'app-win32.ico'), bmpIco);
+const kB2 = (bmpIco.length / 1024).toFixed(1);
+console.log(`[icons]   launcher/app-win32.ico (${icoWin32.length} frames BMP: ${icoWin32.join(',')} — ${kB2} KB)`);
 
 // 2) Android mipmap PNGs — adaptive-icon compatible densities
 const densities = [

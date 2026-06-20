@@ -13,12 +13,12 @@
     <Product>CC Remote Launcher</Product>
     <Company>CC Remote</Company>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>app.ico</ApplicationIcon>
+    <ApplicationIcon>app-win32.ico</ApplicationIcon>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
 
-  <!-- App icon (matches the Android app); embedded so the window/taskbar use it too. -->
+  <!-- Window icon (managed resource, loaded by TryLoadIcon); PNG frames are fine here. -->
   <ItemGroup>
     <EmbeddedResource Include="app.ico">
       <LogicalName>app.ico</LogicalName>
