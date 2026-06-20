@@ -317,11 +317,12 @@ public class TerminalActivity extends AppCompatActivity
                 break;
             }
             case "profile_switched": {
-                // Profile changed — restart the session so the new model takes effect
-                runOnUiThread(() -> {
-                    WebSocketManager.getInstance().sendRestartSession(sessionId);
-                    Toast.makeText(this, "Restarting with new model…", Toast.LENGTH_SHORT).show();
-                });
+                // The server restarts all running sessions itself on switch
+                // (server-driven), so the client must NOT also send a restart —
+                // that would double-restart. Just inform the user; the new model
+                // arrives via the fresh session_meta after the restart.
+                runOnUiThread(() ->
+                    Toast.makeText(this, "Profile switched · restarting session…", Toast.LENGTH_SHORT).show());
                 break;
             }
         }

@@ -820,6 +820,7 @@ public class MainActivity extends AppCompatActivity {
             ProfileInfo sel = cachedProfiles.get(selectedIdx[0]);
             wsManager.sendSwitchProfile(sel.id, sel.source);
             wsManager.sendListProfiles();
+            Toast.makeText(this, "Switching to " + sel.name + " · restarting sessions…", Toast.LENGTH_SHORT).show();
             if (profileDialog != null) profileDialog.dismiss();
         });
         btnRow.addView(switchBtn);
