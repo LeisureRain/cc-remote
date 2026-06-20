@@ -16,9 +16,33 @@
 const { EventEmitter } = require('events');
 const { spawn } = require('child_process');
 const readline = require('readline');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 // Max chat history entries retained per session (bounds memory + reconnect payload).
 const MAX_CHAT_HISTORY = 400;
+
+/**
+ * Resolve the model to launch `claude` with, read fresh from the live
+ * settings.json that the profile system overwrites on every switch.
+ *
+ * Why force a model at all: `claude --resume` otherwise pins the model that is
+ * recorded in the session's own history file. If the user has since switched to
+ * a proxy that doesn't serve that model, resume fails with "model not found".
+ * Passing `--model <current>` overrides the stale pin so a resumed session
+ * follows whatever profile is active now. Returns '' to mean "don't pass
+ * --model" (let claude pick its own default).
+ */
+function resolveCurrentModel() {
+  try {
+    const raw = fs.readFileSync(path.join(os.homedir(), '.claude', 'settings.json'), 'utf8');
+    const s = JSON.parse(raw);
+    return (s && (s.model || (s.env && s.env.ANTHROPIC_MODEL))) || '';
+  } catch (e) {
+    return '';
+  }
+}
 
 class ClaudeSession extends EventEmitter {
   constructor(id, directory, options = {}) {
@@ -45,6 +69,10 @@ class ClaudeSession extends EventEmitter {
     this._turnText = '';          // accumulated assistant text for the active turn
     this._streaming = false;
 
+    // Tool-call tracking (P3)
+    this._activeToolCount = 0;    // number of tool_use blocks in the current turn
+    this._toolPhaseHasText = false; // true once text resumes after tool calls
+
     // claude session metadata (from system/init)
     this.claudeSessionId = null;
     this.model = null;
@@ -55,6 +83,63 @@ class ClaudeSession extends EventEmitter {
     this._resume = false;         // first launch creates the session; restarts resume it
 
     this._start();
+  }
+
+  /**
+   * Serialize persistable state for disk storage.
+   */
+  toJSON() {
+    return {
+      id: this.id,
+      directory: this.directory,
+      claudeSessionId: this.claudeSessionId,
+      createdAt: this.createdAt.toISOString(),
+      permissionMode: this.permissionMode,
+      // NOTE: model is intentionally NOT persisted. The launch model is resolved
+      // at start time from the live settings.json (see resolveCurrentModel), so a
+      // resumed session follows the active profile rather than a stale recording.
+      chatHistory: this._chatHistory,
+      pending: this._chatPending,
+    };
+  }
+
+  /**
+   * Reconstruct a session from saved state (e.g. after server restart).
+   * Uses --resume to pick up the claude conversation from disk.
+   * @param {object} data — the plain object produced by toJSON()
+   * @returns {ClaudeSession}
+   */
+  static fromSaved(data) {
+    const session = Object.create(ClaudeSession.prototype);
+    EventEmitter.call(session);
+
+    session.id = data.id;
+    session.directory = data.directory;
+    session.claudeSessionId = data.claudeSessionId || null;
+    session.createdAt = new Date(data.createdAt || Date.now());
+    session.permissionMode = data.permissionMode || '';
+    session.model = null; // not persisted; set later from the system/init event
+    session._chatHistory = Array.isArray(data.chatHistory) ? data.chatHistory : [];
+    session._chatPending = null; // process was restarted — turn is no longer in-flight
+    session.isRunning = false;
+    session.exitCode = null;
+    session.clients = new Set();
+    session._chatBusy = false;
+    session._turnText = '';
+    session._streaming = false;
+    session._activeToolCount = 0;
+    session._toolPhaseHasText = false;
+    session.child = null;
+    session._stdoutRl = null;
+    session._resume = true;
+
+    // Trim chat history if over limit
+    if (session._chatHistory.length > MAX_CHAT_HISTORY) {
+      session._chatHistory = session._chatHistory.slice(-MAX_CHAT_HISTORY);
+    }
+
+    session._start();
+    return session;
   }
 
   // ==========================================================
@@ -72,6 +157,11 @@ class ClaudeSession extends EventEmitter {
     if (this._resume) parts.push('--resume', this.id);
     else parts.push('--session-id', this.id);
     if (this.permissionMode) parts.push('--permission-mode', this.permissionMode);
+    // Force the currently-active model so `--resume` can't pin a stale model
+    // from a proxy the user has since switched away from. Read fresh each start
+    // so a resumed/restarted process follows the current profile.
+    const model = resolveCurrentModel();
+    if (model) parts.push('--model', model);
     // Single command string + shell:true (rather than an args array) so Windows
     // resolves the `claude` launcher and we avoid Node's DEP0190 warning. Every
     // token here is fixed/trusted — the user prompt travels via stdin, never the
@@ -144,9 +234,29 @@ class ClaudeSession extends EventEmitter {
       case 'stream_event': {
         const ev = obj.event;
         if (!ev) break;
+
+        // --- tool_use start (P3) ---
+        if (ev.type === 'content_block_start' &&
+            ev.content_block && ev.content_block.type === 'tool_use') {
+          this._activeToolCount++;
+          const toolName = ev.content_block.name || 'unknown';
+          this._broadcast({
+            type: 'session_tool', session_id: this.id,
+            status: 'running', name: toolName,
+          });
+          break;
+        }
+
         if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta') {
           const t = ev.delta.text || '';
           if (t) {
+            // Resumption of text means all preceding tool calls are done.
+            // Broadcast done BEFORE the delta so Android removes tool
+            // indicators before updating the streaming bubble.
+            if (this._activeToolCount > 0 && !this._toolPhaseHasText) {
+              this._toolPhaseHasText = true;
+              this._broadcast({ type: 'session_tool', session_id: this.id, status: 'done' });
+            }
             this._turnText += t;
             this._streaming = true;
             this._onTextDelta(t);
@@ -156,12 +266,19 @@ class ClaudeSession extends EventEmitter {
       }
 
       case 'result': {
+        // Flush any pending tool indicators (P3)
+        if (this._activeToolCount > 0) {
+          this._activeToolCount = 0;
+          this._toolPhaseHasText = false;
+          this._broadcast({ type: 'session_tool', session_id: this.id, status: 'done' });
+        }
         const text = (this._turnText && this._turnText.trim()) || obj.result || '';
         this._turnText = '';
         this._streaming = false;
         this._chatBusy = false;
         this._chatPending = null;
         this._pushHistory({ role: 'claude', text, ts: Date.now() });
+        this.emit('turnComplete');
         // Keep the historic `session_response` shape so existing clients work.
         this._broadcast({
           type: 'session_response', session_id: this.id, data: text,
@@ -210,6 +327,8 @@ class ClaudeSession extends EventEmitter {
     this._chatBusy = true;
     this._chatPending = prompt;
     this._turnText = '';
+    this._activeToolCount = 0;       // P3: new turn, reset tool tracking
+    this._toolPhaseHasText = false;
     this._pushHistory({ role: 'user', text: prompt, ts: Date.now() });
 
     const envelope = { type: 'user', message: { role: 'user', content: [{ type: 'text', text: prompt }] } };
@@ -234,6 +353,8 @@ class ClaudeSession extends EventEmitter {
   interrupt() {
     if (!this._chatBusy) return { ok: false, error: 'Nothing to interrupt' };
     const partial = (this._turnText && this._turnText.trim()) || '';
+    this._activeToolCount = 0;       // P3: clear any tool indicators
+    this._toolPhaseHasText = false;
     this._restart();
     this._chatBusy = false;
     this._chatPending = null;

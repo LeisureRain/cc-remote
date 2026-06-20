@@ -29,6 +29,8 @@ function loadConfig() {
     maxSessions: 20,
     workspace: '',
     permissionMode: '',
+    persistSessions: true,
+    sessionsDir: 'sessions',
   };
 
   // Load from config file (if present)
@@ -51,11 +53,15 @@ function loadConfig() {
   const maxSessions = parseInt(process.env.MAX_SESSIONS || `${fileConfig.maxSessions || defaults.maxSessions}`, 10);
   const workspace = process.env.WORKSPACE || fileConfig.workspace || defaults.workspace;
   const permissionMode = process.env.PERMISSION_MODE || fileConfig.permissionMode || defaults.permissionMode;
+  const persistSessions = process.env.PERSIST_SESSIONS !== undefined
+    ? process.env.PERSIST_SESSIONS !== 'false' && process.env.PERSIST_SESSIONS !== '0'
+    : (fileConfig.persistSessions !== undefined ? fileConfig.persistSessions : defaults.persistSessions);
+  const sessionsDir = process.env.SESSIONS_DIR || fileConfig.sessionsDir || defaults.sessionsDir;
 
   // Normalize workspace path
   const normalizedWorkspace = workspace ? path.resolve(workspace.trim()) : '';
 
-  return { port, host, maxSessions, workspace: normalizedWorkspace, permissionMode };
+  return { port, host, maxSessions, workspace: normalizedWorkspace, permissionMode, persistSessions, sessionsDir };
 }
 
 const CONFIG = loadConfig();
@@ -217,7 +223,10 @@ function htmlHead(title) {
 // ============================================================
 // Initialize
 // ============================================================
-const sessionManager = new SessionManager();
+const sessionManager = new SessionManager({
+  persistSessions: CONFIG.persistSessions,
+  sessionsDir: path.resolve(CONFIG.sessionsDir),
+});
 
 // Cached probe for the `claude` CLI. null = unknown; cached true once found
 // so we don't pay the probe cost on every session create. A negative result
@@ -616,6 +625,11 @@ function sendToClient(ws, message) {
 // ============================================================
 // Start
 // ============================================================
+
+// Restore previously persisted sessions before accepting connections
+sessionManager.ensureSessionsDir();
+sessionManager.restoreSessions();
+
 httpServer.listen(CONFIG.port, CONFIG.host, () => {
   console.log('══════════════════════════════════════════════');
   console.log('  🦞 CC Remote Server');
@@ -633,6 +647,8 @@ httpServer.listen(CONFIG.port, CONFIG.host, () => {
 // ============================================================
 function shutdown() {
   console.log('\n[Server] Shutting down...');
+  // Save all active sessions before killing processes
+  sessionManager.saveAllActive();
   for (const [id, session] of sessionManager.sessions) { session.kill(); }
   wss.close(() => console.log('[Server] WebSocket closed'));
   httpServer.close(() => { console.log('[Server] HTTP closed'); process.exit(0); });

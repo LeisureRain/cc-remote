@@ -1,6 +1,7 @@
 # Token files
 .cc-remote-token
 server/profiles/
+server/sessions/
 
 # Articles / Publishing
 公众号文章.md
