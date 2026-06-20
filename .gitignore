@@ -36,3 +36,8 @@ local.properties
 
 # Build artifacts
 *.apk
+
+# Windows launcher (.NET) build output + packaged distribution
+launcher/bin/
+launcher/obj/
+dist/
