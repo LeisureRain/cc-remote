@@ -79,12 +79,15 @@
             android:hint="@string/msg_input_hint"
             android:paddingHorizontal="12dp"
             android:paddingVertical="10dp"
-            android:inputType="text|textNoSuggestions"
-            android:maxLines="1"
+            android:inputType="text|textNoSuggestions|textCapSentences"
+            android:minLines="3"
+            android:maxLines="5"
+            android:gravity="top|start"
             android:imeOptions="actionSend"
             android:textSize="14sp"
             android:fontFamily="monospace"
-            android:importantForAutofill="no" />
+            android:importantForAutofill="no"
+            android:scrollbars="vertical" />
 
         <ImageButton
             android:id="@+id/btn_send"

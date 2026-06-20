@@ -18,10 +18,11 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:background="@drawable/bubble_claude"
-            android:paddingHorizontal="8dp"
-            android:paddingVertical="6dp"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="8dp"
             android:textColor="#C8D6E5"
             android:textSize="13sp"
+            android:lineSpacingExtra="4dp"
             android:textIsSelectable="true"
             tools:text="Claude's response with **bold**, `code`, and tables" />
 
