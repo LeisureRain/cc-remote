@@ -568,6 +568,18 @@ wss.on('connection', (ws, req) => {
         break;
       }
 
+      case 'delete_session': {
+        // Like kill, but framed as a permanent removal: stop the process and
+        // purge the persisted <id>.json so the session is NOT restored on the
+        // next server reboot. Idempotent — always acks with session_deleted.
+        const sid = message.session_id || currentSessionId;
+        if (!sid) { sendToClient(ws, { type: 'error', message: 'No session specified' }); return; }
+        sessionManager.deleteSession(sid);
+        if (currentSessionId === sid) currentSessionId = null;
+        sendToClient(ws, { type: 'session_deleted', session_id: sid });
+        break;
+      }
+
       case 'restart_session': {
         const sid = message.session_id || currentSessionId;
         if (!sid) { sendToClient(ws, { type: 'error', message: 'session_id is required' }); return; }

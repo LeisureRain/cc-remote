@@ -90,6 +90,22 @@ class SessionManager {
   }
 
   /**
+   * Permanently delete a session: stop its process, drop it from the map, and
+   * purge its persisted state so it is NOT restored on the next server reboot.
+   * Idempotent — deleting an already-gone session still purges any stray file.
+   * @param {string} id
+   * @returns {boolean}
+   */
+  deleteSession(id) {
+    const session = this.sessions.get(id);
+    if (session) session.kill();
+    this.sessions.delete(id);
+    this.deleteSessionFile(id);
+    console.log(`[SessionManager] Deleted session ${id} (purged persistence)`);
+    return true;
+  }
+
+  /**
    * Get list of all sessions with summary info
    * @returns {Array<{id: string, directory: string, createdAt: string, status: string, clientCount: number}>}
    */
