@@ -757,72 +757,122 @@ public class MainActivity extends AppCompatActivity {
         final int padH = (int) (12 * getResources().getDisplayMetrics().density);
         final int padV = (int) (8 * getResources().getDisplayMetrics().density);
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(padH, padV, padH, padV);
-        root.setBackgroundColor(0xFF161B22);
-
-        // RadioGroup of profiles
-        final android.widget.RadioGroup radioGroup = new android.widget.RadioGroup(this);
-        radioGroup.setPadding(0, 0, 0, padV);
-
-        for (int i = 0; i < cachedProfiles.size(); i++) {
-            ProfileInfo p = cachedProfiles.get(i);
-            android.widget.RadioButton rb = new android.widget.RadioButton(this);
-            rb.setText(p.name);
-            rb.setTextColor(0xFFE0E0E0);
-            rb.setId(i);
-            if (p.id.equals(cachedActiveId)) {
-                rb.setChecked(true);
-            }
-            radioGroup.addView(rb);
+        // Separate profiles by source
+        List<ProfileInfo> ccProfiles = new ArrayList<>();
+        List<ProfileInfo> localProfiles = new ArrayList<>();
+        for (ProfileInfo p : cachedProfiles) {
+            if (p.isCCSwitch()) ccProfiles.add(p);
+            else localProfiles.add(p);
         }
-        root.addView(radioGroup);
 
-        // Action buttons row
+        // Build profile list — each item is a selectable row stored in a flat list
+        // alongside its view so we can update the radio dot.
+        LinearLayout listRoot = new LinearLayout(this);
+        listRoot.setOrientation(LinearLayout.VERTICAL);
+        listRoot.setPadding(0, 0, 0, padV);
+
+        final java.util.List<View> itemViews = new ArrayList<>();
+        final int[] selectedIdx = { -1 };
+
+        // — CC Switch section —
+        if (!ccProfiles.isEmpty()) {
+            listRoot.addView(sectionHeader("⚡ CC Switch", padH, padV));
+            for (ProfileInfo p : ccProfiles) {
+                View item = profileItem(p, padH, padV, true, selectedIdx, itemViews, cachedActiveId);
+                itemViews.add(item);
+                listRoot.addView(item);
+            }
+        }
+
+        // — Local section —
+        listRoot.addView(sectionHeader("📁 Local", padH, padV));
+        for (ProfileInfo p : localProfiles) {
+            View item = profileItem(p, padH, padV, true, selectedIdx, itemViews, cachedActiveId);
+            itemViews.add(item);
+            listRoot.addView(item);
+        }
+
+        // Set initial selection to the currently-active profile
+        for (int i = 0; i < cachedProfiles.size(); i++) {
+            if (cachedProfiles.get(i).id.equals(cachedActiveId)) {
+                selectedIdx[0] = i;
+                updateRadioDot(itemViews.get(i), true);
+                break;
+            }
+        }
+
+        // Wrap in ScrollView so long lists don't overflow
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.addView(listRoot);
+
+        // Bottom bar — Switch + contextual actions
         LinearLayout btnRow = new LinearLayout(this);
         btnRow.setOrientation(LinearLayout.HORIZONTAL);
         btnRow.setPadding(0, padV, 0, 0);
 
-        String[] labels = {"Switch", "Create", "Rename", "Delete"};
-        int[] colors = {0xFF51CF66, 0xFF74C0FC, 0xFFFFD43B, 0xFFFF6B6B};
+        // Switch button (always present)
+        TextView switchBtn = dialogButton("Switch", 0xFF51CF66, padH, padV);
+        switchBtn.setOnClickListener(v -> {
+            if (selectedIdx[0] < 0 || selectedIdx[0] >= cachedProfiles.size()) {
+                Toast.makeText(this, "Select a profile first", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            ProfileInfo sel = cachedProfiles.get(selectedIdx[0]);
+            wsManager.sendSwitchProfile(sel.id, sel.source);
+            wsManager.sendListProfiles();
+            if (profileDialog != null) profileDialog.dismiss();
+        });
+        btnRow.addView(switchBtn);
 
-        for (int i = 0; i < labels.length; i++) {
-            TextView btn = new TextView(this);
-            btn.setText(labels[i]);
-            btn.setTextColor(colors[i]);
-            btn.setTextSize(13);
-            btn.setGravity(Gravity.CENTER);
-            btn.setBackgroundResource(R.drawable.input_bg);
-            btn.setPadding(padH, padV / 2, padH, padV / 2);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            lp.setMargins(i > 0 ? 4 : 0, 0, 0, 0);
-            btn.setLayoutParams(lp);
+        // New profile button (for local section)
+        TextView newBtn = dialogButton("+ New", 0xFF74C0FC, padH, padV);
+        newBtn.setOnClickListener(v -> {
+            if (profileDialog != null) profileDialog.dismiss();
+            showCreateProfileDialog();
+        });
+        btnRow.addView(newBtn);
 
-            final int fi = i;
-            btn.setOnClickListener(v -> {
-                int checkedId = radioGroup.getCheckedRadioButtonId();
-                if (checkedId < 0 || checkedId >= cachedProfiles.size()) return;
-                ProfileInfo selected = cachedProfiles.get(checkedId);
+        // Only show rename/delete for native profiles
+        TextView renameBtn = dialogButton("Rename", 0xFFFFD43B, padH, padV);
+        renameBtn.setOnClickListener(v -> {
+            if (selectedIdx[0] < 0 || selectedIdx[0] >= cachedProfiles.size()) {
+                Toast.makeText(this, "Select a profile first", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            ProfileInfo sel = cachedProfiles.get(selectedIdx[0]);
+            if (sel.isCCSwitch()) {
+                Toast.makeText(this, "CC Switch profiles cannot be renamed here", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (profileDialog != null) profileDialog.dismiss();
+            showRenameProfileDialog(sel);
+        });
+        btnRow.addView(renameBtn);
 
-                if (fi == 0) { // Switch
-                    wsManager.sendSwitchProfile(selected.id);
-                    // Refresh profile list on next response
-                    wsManager.sendListProfiles();
-                } else if (fi == 1) { // Create
-                    showCreateProfileDialog();
-                } else if (fi == 2) { // Rename
-                    showRenameProfileDialog(selected);
-                } else if (fi == 3) { // Delete
-                    confirmDeleteProfile(selected);
-                }
-            });
-            btnRow.addView(btn);
-        }
+        TextView deleteBtn = dialogButton("Delete", 0xFFFF6B6B, padH, padV);
+        deleteBtn.setOnClickListener(v -> {
+            if (selectedIdx[0] < 0 || selectedIdx[0] >= cachedProfiles.size()) {
+                Toast.makeText(this, "Select a profile first", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            ProfileInfo sel = cachedProfiles.get(selectedIdx[0]);
+            if (sel.isCCSwitch()) {
+                Toast.makeText(this, "CC Switch profiles cannot be deleted here", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (profileDialog != null) profileDialog.dismiss();
+            confirmDeleteProfile(sel);
+        });
+        btnRow.addView(deleteBtn);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(padH, padV, padH, padV);
+        root.setBackgroundColor(0xFF161B22);
+        root.addView(scrollView);
         root.addView(btnRow);
 
-        // Custom title
+        // Title
         TextView titleView = new TextView(this);
         titleView.setText("Profiles");
         titleView.setTextColor(0xFFFFFFFF);
@@ -842,6 +892,116 @@ public class MainActivity extends AppCompatActivity {
             dialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_bg);
         }
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(0xFF888888);
+    }
+
+    /** Section header label for the profile list. */
+    private TextView sectionHeader(String text, int padH, int padV) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(0xFF8B949E);
+        tv.setTextSize(11);
+        tv.setPadding(padH, padV * 2, padH, padV / 2);
+        tv.setTypeface(null, android.graphics.Typeface.BOLD);
+        return tv;
+    }
+
+    /** Build a single selectable profile row. */
+    private View profileItem(ProfileInfo p, int padH, int padV, boolean showModel,
+                              final int[] selectedIdx, List<View> itemViews, String activeId) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(padH, padV, padH, padV);
+        row.setBackgroundColor(0xFF0D1117);
+        // Rounded corners via drawable
+        row.setBackgroundResource(R.drawable.input_bg);
+
+        // Radio dot
+        TextView dot = new TextView(this);
+        dot.setText("○");
+        dot.setTextColor(0xFF8B949E);
+        dot.setTextSize(16);
+        dot.setPadding(0, 0, padH, 0);
+        row.addView(dot);
+
+        // Profile name + model
+        LinearLayout textCol = new LinearLayout(this);
+        textCol.setOrientation(LinearLayout.VERTICAL);
+
+        TextView nameView = new TextView(this);
+        nameView.setText(p.name);
+        nameView.setTextColor(0xFFE0E0E0);
+        nameView.setTextSize(14);
+        textCol.addView(nameView);
+
+        if (showModel && p.model != null && !p.model.isEmpty()) {
+            TextView modelView = new TextView(this);
+            modelView.setText(p.model);
+            modelView.setTextColor(0xFF8B949E);
+            modelView.setTextSize(11);
+            modelView.setPadding(0, 2, 0, 0);
+            textCol.addView(modelView);
+        }
+        row.addView(textCol);
+
+        // Spacer
+        View spacer = new View(this);
+        spacer.setLayoutParams(new LinearLayout.LayoutParams(0, 1, 1f));
+        row.addView(spacer);
+
+        // Checkmark if active
+        if (p.id.equals(activeId)) {
+            TextView check = new TextView(this);
+            check.setText("✓");
+            check.setTextColor(0xFF51CF66);
+            check.setTextSize(14);
+            row.addView(check);
+        }
+
+        // Click → select
+        int myIdx = itemViews.size(); // index in the flat list
+        row.setOnClickListener(v -> {
+            // Deselect old
+            if (selectedIdx[0] >= 0 && selectedIdx[0] < itemViews.size()) {
+                updateRadioDot(itemViews.get(selectedIdx[0]), false);
+            }
+            // Select new
+            selectedIdx[0] = myIdx;
+            updateRadioDot(row, true);
+        });
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, 0, 0, 4);
+        row.setLayoutParams(lp);
+
+        return row;
+    }
+
+    private void updateRadioDot(View itemView, boolean selected) {
+        if (itemView instanceof LinearLayout) {
+            LinearLayout row = (LinearLayout) itemView;
+            if (row.getChildCount() > 0 && row.getChildAt(0) instanceof TextView) {
+                TextView dot = (TextView) row.getChildAt(0);
+                dot.setText(selected ? "●" : "○");
+                dot.setTextColor(selected ? 0xFF51CF66 : 0xFF8B949E);
+            }
+        }
+    }
+
+    private TextView dialogButton(String text, int color, int padH, int padV) {
+        TextView btn = new TextView(this);
+        btn.setText(text);
+        btn.setTextColor(color);
+        btn.setTextSize(13);
+        btn.setGravity(Gravity.CENTER);
+        btn.setBackgroundResource(R.drawable.input_bg);
+        btn.setPadding(padH, padV / 2, padH, padV / 2);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp.setMargins(2, 0, 2, 0);
+        btn.setLayoutParams(lp);
+        return btn;
     }
 
     private void showCreateProfileDialog() {

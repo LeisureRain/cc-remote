@@ -16,6 +16,7 @@ const os = require('os');
 const url = require('url');
 const { exec } = require('child_process');
 const { SessionManager } = require('./session-manager');
+const ccSwitch = require('./cc-switch');
 
 // ============================================================
 // Configuration
@@ -528,11 +529,37 @@ wss.on('connection', (ws, req) => {
 
       case 'list_profiles': {
         const idx = readProfileIndex();
-        sendToClient(ws, { type: 'profile_list', profiles: idx.profiles, active: idx.active || '' });
+        let profiles = [...idx.profiles];
+
+        // Merge CC Switch profiles (read-only, sourced from ~/.cc-switch/cc-switch.db)
+        if (ccSwitch.isAvailable()) {
+          const ccProfiles = ccSwitch.readCCSwitchProfiles();
+          for (const cp of ccProfiles) {
+            // Avoid duplicates: if a native profile already has the same ID, skip
+            if (!profiles.some(p => p.id === cp.id)) {
+              profiles.push(cp);
+            }
+          }
+        }
+
+        // Determine active: CC Switch's is_current flag takes priority,
+        // then native index's active field
+        let activeId = idx.active || '';
+        if (ccSwitch.isAvailable()) {
+          const ccActive = profiles.find(p => p.source === 'cc-switch' && p.isCurrent);
+          if (ccActive) activeId = ccActive.id;
+        }
+
+        sendToClient(ws, { type: 'profile_list', profiles, active: activeId });
         break;
       }
 
       case 'create_profile': {
+        // CC Switch profiles are read-only
+        if (message.source === 'cc-switch') {
+          sendToClient(ws, { type: 'error', message: 'CC Switch profiles cannot be modified here. Use CC Switch to manage them.' });
+          return;
+        }
         const pName = message.name;
         if (!pName || typeof pName !== 'string' || !pName.trim()) {
           sendToClient(ws, { type: 'error', message: 'Profile name is required' });
@@ -556,6 +583,11 @@ wss.on('connection', (ws, req) => {
       case 'update_profile': {
         const upId = message.id;
         if (!upId) { sendToClient(ws, { type: 'error', message: 'Profile ID is required' }); return; }
+        // Block CC Switch profiles
+        if (message.source === 'cc-switch' || (ccSwitch.isAvailable() && ccSwitch.readCCSwitchProfiles().some(p => p.id === upId))) {
+          sendToClient(ws, { type: 'error', message: 'CC Switch profiles cannot be modified here.' });
+          return;
+        }
         const ui = readProfileIndex();
         const uIdx = ui.profiles.findIndex(p => p.id === upId);
         if (uIdx === -1) { sendToClient(ws, { type: 'error', message: 'Profile not found' }); return; }
@@ -579,6 +611,11 @@ wss.on('connection', (ws, req) => {
       case 'delete_profile': {
         const dId = message.id;
         if (!dId) { sendToClient(ws, { type: 'error', message: 'Profile ID is required' }); return; }
+        // Block CC Switch profiles
+        if (message.source === 'cc-switch' || (ccSwitch.isAvailable() && ccSwitch.readCCSwitchProfiles().some(p => p.id === dId))) {
+          sendToClient(ws, { type: 'error', message: 'CC Switch profiles cannot be deleted here.' });
+          return;
+        }
         const di = readProfileIndex();
         const dIdx = di.profiles.findIndex(p => p.id === dId);
         if (dIdx === -1) { sendToClient(ws, { type: 'error', message: 'Profile not found' }); return; }
@@ -596,12 +633,44 @@ wss.on('connection', (ws, req) => {
       case 'switch_profile': {
         const sId = message.id;
         if (!sId) { sendToClient(ws, { type: 'error', message: 'Profile ID is required' }); return; }
+        const sSource = message.source || 'native';
+
+        const claudeDir = path.join(os.homedir(), '.claude');
+        const settingsPath = path.join(claudeDir, 'settings.json');
+
+        // — CC Switch profile —
+        if (sSource === 'cc-switch') {
+          if (!ccSwitch.isAvailable()) {
+            sendToClient(ws, { type: 'error', message: 'CC Switch database not available' });
+            return;
+          }
+          const ccProfile = ccSwitch.getCCSwitchProfile(sId);
+          if (!ccProfile) {
+            sendToClient(ws, { type: 'error', message: 'CC Switch profile not found' });
+            return;
+          }
+          try {
+            if (!fs.existsSync(claudeDir)) fs.mkdirSync(claudeDir, { recursive: true });
+            if (fs.existsSync(settingsPath)) {
+              try { fs.copyFileSync(settingsPath, settingsPath + '.bak'); } catch (_) { /* best effort */ }
+            }
+            fs.writeFileSync(settingsPath, JSON.stringify(ccProfile.content, null, 2), 'utf8');
+            // Update native index to track active (even though source is cc-switch)
+            const ni = readProfileIndex();
+            ni.active = sId;
+            writeProfileIndex(ni);
+            sendToClient(ws, { type: 'profile_switched', id: sId, name: ccProfile.name });
+          } catch (e) {
+            sendToClient(ws, { type: 'error', message: 'Failed to switch profile: ' + e.message });
+          }
+          return;
+        }
+
+        // — Native profile (existing logic) —
         const si = readProfileIndex();
         const sIdx = si.profiles.findIndex(p => p.id === sId);
         if (sIdx === -1) { sendToClient(ws, { type: 'error', message: 'Profile not found' }); return; }
         const sProfile = readProfileFile(sId);
-        const claudeDir = path.join(os.homedir(), '.claude');
-        const settingsPath = path.join(claudeDir, 'settings.json');
         try {
           if (!fs.existsSync(claudeDir)) fs.mkdirSync(claudeDir, { recursive: true });
           // Back up the current settings.json before overwriting, so a switch
@@ -640,6 +709,12 @@ function sendToClient(ws, message) {
 // Restore previously persisted sessions before accepting connections
 sessionManager.ensureSessionsDir();
 sessionManager.restoreSessions();
+
+// Log CC Switch availability
+if (ccSwitch.isAvailable()) {
+  const ccProfiles = ccSwitch.readCCSwitchProfiles();
+  console.log(`[CC Switch] Found ${ccProfiles.length} profile(s) in ~/.cc-switch/cc-switch.db`);
+}
 
 httpServer.listen(CONFIG.port, CONFIG.host, () => {
   console.log('══════════════════════════════════════════════');

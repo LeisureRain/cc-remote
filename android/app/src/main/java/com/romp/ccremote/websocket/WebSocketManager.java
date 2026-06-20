@@ -461,11 +461,17 @@ public class WebSocketManager {
         return send(gson.toJson(msg));
     }
 
-    public boolean sendSwitchProfile(String id) {
+    public boolean sendSwitchProfile(String id, String source) {
         JsonObject msg = new JsonObject();
         msg.addProperty("type", "switch_profile");
         msg.addProperty("id", id);
+        if (source != null) msg.addProperty("source", source);
         return send(gson.toJson(msg));
+    }
+
+    /** Convenience overload for native profiles (no source). */
+    public boolean sendSwitchProfile(String id) {
+        return sendSwitchProfile(id, "native");
     }
 
     public boolean sendRestartSession(String sessionId) {
