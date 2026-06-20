@@ -19,7 +19,7 @@ namespace CCRemoteLauncher
 
         public SettingsForm(int port, string workspace)
         {
-            Text = "服务端设置";
+            Text = "Server Settings";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition = FormStartPosition.CenterParent;
             MaximizeBox = false;
@@ -30,7 +30,7 @@ namespace CCRemoteLauncher
 
             var lblPort = new Label
             {
-                Text = "监听端口:",
+                Text = "Listening port:",
                 Left = 16, Top = 22, Width = 90,
                 TextAlign = ContentAlignment.MiddleLeft,
             };
@@ -43,15 +43,15 @@ namespace CCRemoteLauncher
 
             var lblWs = new Label
             {
-                Text = "工作区目录(留空 = 不限制):",
-                Left = 16, Top = 62, Width = 300,
+                Text = "Workspace directory (empty = unrestricted):",
+                Left = 16, Top = 62, Width = 360,
             };
             _workspace = new TextBox
             {
                 Left = 16, Top = 86, Width = 340,
                 Text = workspace ?? string.Empty,
             };
-            var browse = new Button { Text = "浏览…", Left = 362, Top = 84, Width = 90, FlatStyle = FlatStyle.System };
+            var browse = new Button { Text = "Browse…", Left = 362, Top = 84, Width = 90, FlatStyle = FlatStyle.System };
             browse.Click += (s, e) =>
             {
                 using (var dlg = new FolderBrowserDialog())
@@ -63,13 +63,13 @@ namespace CCRemoteLauncher
 
             var note = new Label
             {
-                Text = "保存后会自动重启服务端以生效。",
+                Text = "The server will restart automatically to apply changes.",
                 Left = 16, Top = 124, Width = 430,
                 ForeColor = Color.Gray,
             };
 
-            var ok = new Button { Text = "保存", Left = 286, Top = 156, Width = 80, DialogResult = DialogResult.OK, FlatStyle = FlatStyle.System };
-            var cancel = new Button { Text = "取消", Left = 372, Top = 156, Width = 80, DialogResult = DialogResult.Cancel, FlatStyle = FlatStyle.System };
+            var ok = new Button { Text = "Save", Left = 286, Top = 156, Width = 80, DialogResult = DialogResult.OK, FlatStyle = FlatStyle.System };
+            var cancel = new Button { Text = "Cancel", Left = 372, Top = 156, Width = 80, DialogResult = DialogResult.Cancel, FlatStyle = FlatStyle.System };
 
             Controls.AddRange(new Control[] { lblPort, _port, lblWs, _workspace, browse, note, ok, cancel });
             AcceptButton = ok;

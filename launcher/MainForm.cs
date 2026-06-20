@@ -51,7 +51,7 @@ namespace CCRemoteLauncher
                 ? $"{v.Major}.{v.Minor}.{v.Build}"
                 : "?";
 
-            Text = $"CC Remote 服务端启动器  v{version}";
+            Text = $"CC Remote Launcher  v{version}";
             TryLoadIcon();
             Width = 820;
             Height = 540;
@@ -68,13 +68,13 @@ namespace CCRemoteLauncher
                 FlowDirection = FlowDirection.LeftToRight,
                 WrapContents = false,
             };
-            _btnStart = MakeButton("启动服务", (s, e) => StartServer());
-            _btnStop = MakeButton("停止服务", (s, e) => StopServer(restart: false));
-            _btnRestart = MakeButton("重启服务", (s, e) => RestartServer());
-            _btnSettings = MakeButton("设置", (s, e) => OnSettings());
-            _btnClear = MakeButton("清空日志", (s, e) => _log.Clear());
-            _btnOpenDir = MakeButton("打开服务端目录", (s, e) => OpenServerDir());
-            _btnAbout = MakeButton("关于", (s, e) => OnAbout());
+            _btnStart = MakeButton("Start", (s, e) => StartServer());
+            _btnStop = MakeButton("Stop", (s, e) => StopServer(restart: false));
+            _btnRestart = MakeButton("Restart", (s, e) => RestartServer());
+            _btnSettings = MakeButton("Settings", (s, e) => OnSettings());
+            _btnClear = MakeButton("Clear Log", (s, e) => _log.Clear());
+            _btnOpenDir = MakeButton("Open Server Folder", (s, e) => OpenServerDir());
+            _btnAbout = MakeButton("About", (s, e) => OnAbout());
             bar.Controls.AddRange(new Control[] { _btnStart, _btnStop, _btnRestart, _btnSettings, _btnClear, _btnOpenDir, _btnAbout });
 
             // --- status line ---
@@ -107,7 +107,7 @@ namespace CCRemoteLauncher
             {
                 Dock = DockStyle.Top,
                 Height = 22,
-                Text = "  会话列表（每 3 秒自动刷新；会话操作请在 Android App 中进行）",
+                Text = "  Sessions (auto-refresh every 3s; manage sessions in the Android app)",
                 TextAlign = ContentAlignment.MiddleLeft,
                 BackColor = Color.FromArgb(22, 27, 34),
                 ForeColor = Color.Gainsboro,
@@ -125,13 +125,13 @@ namespace CCRemoteLauncher
                 BorderStyle = BorderStyle.None,
                 Font = new Font("Segoe UI", 9f),
             };
-            _sessions.Columns.Add("会话", 160);
-            _sessions.Columns.Add("状态", 90);
-            _sessions.Columns.Add("客户端", 60, HorizontalAlignment.Center);
-            _sessions.Columns.Add("消息", 55, HorizontalAlignment.Center);
-            _sessions.Columns.Add("创建时间", 120);
-            _sessions.Columns.Add("目录", 320);
-            // Last column (目录) flexes to fill the panel so the table never needs a
+            _sessions.Columns.Add("Session", 160);
+            _sessions.Columns.Add("Status", 90);
+            _sessions.Columns.Add("Clients", 60, HorizontalAlignment.Center);
+            _sessions.Columns.Add("Messages", 55, HorizontalAlignment.Center);
+            _sessions.Columns.Add("Created", 120);
+            _sessions.Columns.Add("Directory", 320);
+            // Last column (Directory) flexes to fill the panel so the table never needs a
             // horizontal scrollbar; recompute whenever the list is resized.
             _sessions.Resize += (s, e) => FitSessionColumns();
 
@@ -196,7 +196,7 @@ namespace CCRemoteLauncher
             _serverDir = ServerLocator.EnsureServerDir(AppendLine);
             if (_serverDir == null)
             {
-                AppendLine("[启动器] 找不到服务端(内置或本地 server 目录均不可用)。");
+                AppendLine("[Launcher] Server not found (no embedded bundle or local server/ directory).");
                 UpdateState();
                 return;
             }
@@ -236,15 +236,15 @@ namespace CCRemoteLauncher
                 _proc.ErrorDataReceived += (s, e) => { if (e.Data != null) AppendLine(e.Data); };
                 _proc.Exited += OnProcExited;
 
-                AppendLine("[启动器] 正在启动服务端 …");
+                AppendLine("[Launcher] Starting server …");
                 _proc.Start();
                 _proc.BeginOutputReadLine();
                 _proc.BeginErrorReadLine();
             }
             catch (Exception ex)
             {
-                AppendLine("[启动器] 启动失败: " + ex.Message);
-                AppendLine("[启动器] 请确认系统已安装 Node.js,且 node 在 PATH 中。");
+                AppendLine("[Launcher] Failed to start: " + ex.Message);
+                AppendLine("[Launcher] Make sure Node.js is installed and 'node' is on PATH.");
                 _proc = null;
             }
             UpdateState();
@@ -261,7 +261,7 @@ namespace CCRemoteLauncher
             }
 
             int pid = _proc.Id;
-            AppendLine($"[启动器] 正在停止服务端 (PID {pid}) …");
+            AppendLine($"[Launcher] Stopping server (PID {pid}) …");
 
             // Detach so the Exited handler doesn't fight us, then kill the whole tree
             // (node spawns claude children). .NET Framework has no Kill(entireProcessTree),
@@ -278,7 +278,7 @@ namespace CCRemoteLauncher
 
         private void RestartServer()
         {
-            AppendLine("[启动器] 重启服务端 …");
+            AppendLine("[Launcher] Restarting server …");
             StopServer(restart: true);
         }
 
@@ -314,7 +314,7 @@ namespace CCRemoteLauncher
             {
                 int code = -1;
                 try { code = _proc?.ExitCode ?? -1; } catch { }
-                AppendLine($"[启动器] 服务端已退出 (exit code {code})。");
+                AppendLine($"[Launcher] Server exited (exit code {code}).");
                 _proc = null;
                 UpdateState();
                 PollSessions();   // server gone — clear the session list now
@@ -333,14 +333,14 @@ namespace CCRemoteLauncher
             if (running)
             {
                 string counts = _uiPollOk
-                    ? $"    会话 {_uiSessionCount}    客户端 {_uiClientCount}"
-                    : "    （正在连接服务…）";
-                _status.Text = $"● 运行中    127.0.0.1:{_port}{counts}";
+                    ? $"    Sessions {_uiSessionCount}    Clients {_uiClientCount}"
+                    : "    (connecting…)";
+                _status.Text = $"● Running    127.0.0.1:{_port}{counts}";
                 _status.ForeColor = Color.FromArgb(81, 207, 102);
             }
             else
             {
-                _status.Text = "○ 已停止";
+                _status.Text = "○ Stopped";
                 _status.ForeColor = Color.FromArgb(248, 81, 73);
             }
         }
@@ -350,7 +350,7 @@ namespace CCRemoteLauncher
         // ==========================================================
 
         /// <summary>
-        /// Size the last column (目录) to absorb the leftover width so the table fits
+        /// Size the last column (Directory) to absorb the leftover width so the table fits
         /// the panel exactly and never shows a horizontal scrollbar. ClientSize.Width
         /// already excludes the vertical scrollbar when one is present.
         /// </summary>
@@ -482,7 +482,7 @@ namespace CCRemoteLauncher
                             r.Status == "running" ? Color.FromArgb(81, 207, 102) :
                             r.Status == "stopped" ? Color.FromArgb(240, 200, 80) :
                                                     Color.FromArgb(150, 150, 150);
-                        it.ToolTipText = "会话 ID: " + r.Id;
+                        it.ToolTipText = "Session ID: " + r.Id;
                         _sessions.Items.Add(it);
                     }
                 }
@@ -527,9 +527,9 @@ namespace CCRemoteLauncher
             {
                 switch (Status)
                 {
-                    case "running": return "● 运行中";
-                    case "stopped": return "⏸ 已暂停";
-                    default: return "✕ 已退出(" + (ExitCode?.ToString() ?? "?") + ")";
+                    case "running": return "● Running";
+                    case "stopped": return "⏸ Paused";
+                    default: return "✕ Exited (" + (ExitCode?.ToString() ?? "?") + ")";
                 }
             }
 
@@ -545,7 +545,7 @@ namespace CCRemoteLauncher
         {
             if (_serverDir == null) return;
             try { Process.Start("explorer.exe", _serverDir); }
-            catch (Exception ex) { AppendLine("[启动器] 打开目录失败: " + ex.Message); }
+            catch (Exception ex) { AppendLine("[Launcher] Failed to open folder: " + ex.Message); }
         }
 
         private void OnAbout()
@@ -554,16 +554,16 @@ namespace CCRemoteLauncher
                 ? $"{v.Major}.{v.Minor}.{v.Build}"
                 : "?";
             string text = string.Join(Environment.NewLine,
-                $"CC Remote 启动器 v{version}",
+                $"CC Remote Launcher v{version}",
                 "",
-                "远程 Claude Code —— 用手机控制你的桌面 AI 编程助手。",
+                "Remote Claude Code — control your desktop AI coding assistant from your phone.",
                 "",
-                "作者：  romp",
-                "邮箱：  srpol@outlook.com",
+                "Author:  romp",
+                "Email:   srpol@outlook.com",
                 "",
                 "Gitee:  https://gitee.com/romp/cc-remote",
                 "GitHub: https://github.com/LeisureRain/cc-remote");
-            MessageBox.Show(this, text, "关于 CC Remote", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, text, "About CC Remote", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         private void OnSettings()
@@ -582,18 +582,18 @@ namespace CCRemoteLauncher
                 {
                     ServerLocator.SaveConfig(_serverDir, dlg.Port, dlg.Workspace);
                     _port = dlg.Port;
-                    string ws = string.IsNullOrEmpty(dlg.Workspace) ? "(不限制)" : dlg.Workspace;
-                    AppendLine($"[启动器] 配置已更新:端口={dlg.Port},工作区={ws}");
+                    string ws = string.IsNullOrEmpty(dlg.Workspace) ? "(unrestricted)" : dlg.Workspace;
+                    AppendLine($"[Launcher] Config updated: port={dlg.Port}, workspace={ws}");
                 }
                 catch (Exception ex)
                 {
-                    AppendLine("[启动器] 保存配置失败: " + ex.Message);
+                    AppendLine("[Launcher] Failed to save config: " + ex.Message);
                     return;
                 }
 
                 if (IsRunning)
                 {
-                    AppendLine("[启动器] 重启服务以应用新配置 …");
+                    AppendLine("[Launcher] Restarting server to apply new config …");
                     RestartServer();
                 }
                 else

@@ -1,57 +1,65 @@
-# CC Remote 服务端启动器 (Windows)
+# CC Remote Server Launcher (Windows)
 
-一个极轻量的 Windows 桌面程序,用来在普通用户的电脑上一键启动 / 停止 CC Remote 服务端,
-并实时查看服务端日志 —— 不需要会用命令行。
+A tiny Windows desktop app for starting / stopping the CC Remote server on an
+ordinary user's machine with one click, and watching the server log live — no
+command line required.
 
-- **单文件分发**:整个服务端(源码 + 生产依赖 + 默认配置)被**嵌入到 exe 内**,exe 约 ~160 KB。
-  用户只需下载这一个 exe,无需任何其它文件。目标 .NET Framework 4.8 为 Windows 10/11 系统自带,无需安装运行时。
-- **主界面**:启动服务 / 停止服务 / 重启服务 / **设置** / 清空日志 / 打开服务端目录 + 实时日志框 + 运行状态行。
-- **职责单一**:只管"服务端进程"的起停。会话级操作(创建 / 停止 / 重启 / 删除会话)请在 Android App 中进行。
+- **Single-file distribution**: the entire server (source + production dependencies +
+  default config) is **embedded inside the exe** (~160 KB). Users download just this one
+  file. The target .NET Framework 4.8 ships with Windows 10/11, so no runtime install is needed.
+- **Main window**: Start / Stop / Restart the server, **Settings**, Clear Log, Open Server Folder,
+  plus a live log box and a running-status line.
+- **Single responsibility**: it only starts/stops the *server process*. Session-level actions
+  (create / stop / restart / delete sessions) live in the Android app.
 
-## 前置条件(目标机器)
+## Prerequisites (target machine)
 
-- Windows 10 (1903+) 或 Windows 11(自带 .NET Framework 4.8)。
-- 已安装 **Node.js**,且 `node` 在 PATH 中(装了 `claude` CLI 的机器通常已满足)。
-- 已安装并登录 **`claude` CLI**(服务端真正干活是调用本机的 claude,exe 不能替代它)。
+- Windows 10 (1903+) or Windows 11 (ships with .NET Framework 4.8).
+- **Node.js** installed with `node` on PATH (machines that have the `claude` CLI usually already qualify).
+- The **`claude` CLI** installed and logged in (the server drives the local `claude` — the exe does not replace it).
 
-## 运行方式
+## Running
 
-直接双击 `CCRemoteLauncher-v<VERSION>.exe`(版本号在文件名里)—— 仅此一个文件。首次运行时,程序会把内置的服务端释放到
-用户数据目录,然后用系统 `node` 拉起它,并把日志实时显示在窗口里。关闭窗口会连同子进程
-(node + claude)一起结束。
+Just double-click `CCRemoteLauncher-v<VERSION>.exe` (the version is in the file name) — that one file is all
+you need. On first run it extracts the embedded server into your user-data directory, launches it with the
+system `node`, and streams the log into the window. Closing the window also terminates the child processes
+(node + claude).
 
-- 服务端释放位置:`%LOCALAPPDATA%\CC-Remote\server\`(可写,无需管理员权限)。
-- `config.json`(端口等)、`sessions/`、`profiles/` 都在该目录下持久保存;**升级换新版 exe 时只刷新代码,不覆盖你改过的 `config.json`**。
-- 想改**端口**或**工作区目录**:点界面上的 **设置** 按钮直接改,保存后会自动重启服务端生效(也可手动编辑该目录下的 `config.json`)。
+- Server is extracted to: `%LOCALAPPDATA%\CC-Remote\server\` (writable, no admin rights needed).
+- `config.json` (port, etc.), `sessions/`, and `profiles/` persist in that directory; **upgrading to a new exe
+  only refreshes code and never overwrites your edited `config.json`**.
+- To change the **port** or **workspace directory**: click **Settings** in the UI — saving auto-restarts the
+  server to apply (you can also edit `config.json` in that directory by hand).
 
-> 若该 exe 没有内置服务端(纯 `dotnet build` 的开发构建),则回退为查找与 exe 同级 / 上层的 `server/` 目录。
+> If the exe has no embedded server (a plain `dotnet build` dev build), it falls back to a sibling/ancestor
+> `server/` directory.
 
-## 从源码构建
+## Building from source
 
-需要 .NET SDK(本机用 8.0.x 即可,会离线编译 net48):
+Requires the .NET SDK (8.0.x works locally; it compiles net48 offline):
 
 ```bash
 cd launcher
 dotnet build -c Release
-# 产物:bin/Release/net48/CCRemoteLauncher.exe(不含内置服务端,用于开发调试)
+# Output: bin/Release/net48/CCRemoteLauncher.exe (no embedded server; for dev/debug)
 ```
 
-构建只在编译期用到 `Microsoft.NETFramework.ReferenceAssemblies`(已在 NuGet 缓存),
-最终 exe 不含任何额外 DLL。
+The build uses `Microsoft.NETFramework.ReferenceAssemblies` at compile time only (already in the NuGet cache);
+the final exe contains no extra DLLs.
 
-## 打包(生成可分发的单 exe)
+## Packaging (the distributable single exe)
 
-在仓库根目录:
+From the repo root:
 
 ```bash
 node package-win.mjs
-# 1) 同步版本号  2) 把服务端打包成 server-bundle.zip 嵌入资源
-# 3) 重新编译  ->  dist/CCRemoteLauncher-v<VERSION>.exe(版本号来自根 VERSION 文件)
+# 1) sync version  2) bundle the server into server-bundle.zip as an embedded resource
+# 3) rebuild  ->  dist/CCRemoteLauncher-v<VERSION>.exe (version from the root VERSION file)
 ```
 
-把 `dist/CCRemoteLauncher-v<VERSION>.exe` 直接发给用户即可。
+Ship `dist/CCRemoteLauncher-v<VERSION>.exe` directly to users.
 
-## 版本号
+## Versioning
 
-版本由仓库根的 `VERSION` 文件统一管理。改完后运行 `node tools/sync-version.mjs`,
-会把版本同步到本启动器的 `.csproj`、`server/package.json` 和 Android 的 `versionName`。
+The version is managed by the repo-root `VERSION` file. After editing it, run `node tools/sync-version.mjs`
+to propagate the version to this launcher's `.csproj`, `server/package.json`, and Android's `versionName`.

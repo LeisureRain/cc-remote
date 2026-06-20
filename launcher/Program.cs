@@ -14,7 +14,7 @@ namespace CCRemoteLauncher
             {
                 if (!isNew)
                 {
-                    MessageBox.Show("CC Remote 启动器已经在运行了。", "CC Remote",
+                    MessageBox.Show("CC Remote Launcher is already running.", "CC Remote",
                         MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }

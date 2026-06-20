@@ -38,14 +38,14 @@ namespace CCRemoteLauncher
                 }
                 catch (Exception ex)
                 {
-                    log("[启动器] 解压内置服务端失败: " + ex.Message);
+                    log("[Launcher] Failed to extract embedded server: " + ex.Message);
                     // fall through to folder lookup
                 }
             }
 
             // Dev fallback: a sibling/ancestor server/ folder with src/index.js.
             string folder = FindSiblingServerDir();
-            if (folder != null) log("[启动器] 使用本地 server 目录: " + folder);
+            if (folder != null) log("[Launcher] Using local server directory: " + folder);
             return folder;
         }
 
@@ -70,11 +70,11 @@ namespace CCRemoteLauncher
                 File.Exists(stampFile) &&
                 File.ReadAllText(stampFile).Trim() == version)
             {
-                log("[启动器] 内置服务端已就绪: " + target);
+                log("[Launcher] Embedded server ready: " + target);
                 return target;
             }
 
-            log("[启动器] 正在释放内置服务端到: " + target);
+            log("[Launcher] Extracting embedded server to: " + target);
             Directory.CreateDirectory(target);
 
             using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(BundleResourceName))
@@ -108,7 +108,7 @@ namespace CCRemoteLauncher
             }
 
             File.WriteAllText(stampFile, version);
-            log("[启动器] 内置服务端释放完成。");
+            log("[Launcher] Embedded server extracted.");
             return target;
         }
 
