@@ -781,6 +781,12 @@ public class MainActivity extends AppCompatActivity {
         listRoot.setPadding(0, 0, 0, padV);
 
         final java.util.List<View> itemViews = new ArrayList<>();
+        // Display-ordered profile list parallel to itemViews. The dialog groups
+        // CC Switch profiles first then Local, which is a DIFFERENT order than
+        // cachedProfiles (server order: native first, then CC Switch). selectedIdx
+        // indexes this display order, so it must be read back from here — never
+        // from cachedProfiles, or the selected row and the acted-on profile diverge.
+        final List<ProfileInfo> displayProfiles = new ArrayList<>();
         final int[] selectedIdx = { -1 };
 
         // — CC Switch section —
@@ -789,6 +795,7 @@ public class MainActivity extends AppCompatActivity {
             for (ProfileInfo p : ccProfiles) {
                 View item = profileItem(p, padH, padV, true, selectedIdx, itemViews, cachedActiveId);
                 itemViews.add(item);
+                displayProfiles.add(p);
                 listRoot.addView(item);
             }
         }
@@ -798,12 +805,13 @@ public class MainActivity extends AppCompatActivity {
         for (ProfileInfo p : localProfiles) {
             View item = profileItem(p, padH, padV, true, selectedIdx, itemViews, cachedActiveId);
             itemViews.add(item);
+            displayProfiles.add(p);
             listRoot.addView(item);
         }
 
         // Set initial selection to the currently-active profile
-        for (int i = 0; i < cachedProfiles.size(); i++) {
-            if (cachedProfiles.get(i).id.equals(cachedActiveId)) {
+        for (int i = 0; i < displayProfiles.size(); i++) {
+            if (displayProfiles.get(i).id.equals(cachedActiveId)) {
                 selectedIdx[0] = i;
                 updateRadioDot(itemViews.get(i), true);
                 break;
@@ -822,11 +830,11 @@ public class MainActivity extends AppCompatActivity {
         // Switch button (always present)
         TextView switchBtn = dialogButton("Switch", 0xFF51CF66, padH, padV);
         switchBtn.setOnClickListener(v -> {
-            if (selectedIdx[0] < 0 || selectedIdx[0] >= cachedProfiles.size()) {
+            if (selectedIdx[0] < 0 || selectedIdx[0] >= displayProfiles.size()) {
                 Toast.makeText(this, "Select a profile first", Toast.LENGTH_SHORT).show();
                 return;
             }
-            ProfileInfo sel = cachedProfiles.get(selectedIdx[0]);
+            ProfileInfo sel = displayProfiles.get(selectedIdx[0]);
             new AlertDialog.Builder(this)
                     .setTitle("Switch Profile")
                     .setMessage("Switch to \"" + sel.name + "\"? Any running sessions will be "
@@ -852,11 +860,11 @@ public class MainActivity extends AppCompatActivity {
         // Only show rename/delete for native profiles
         TextView renameBtn = dialogButton("Rename", 0xFFFFD43B, padH, padV);
         renameBtn.setOnClickListener(v -> {
-            if (selectedIdx[0] < 0 || selectedIdx[0] >= cachedProfiles.size()) {
+            if (selectedIdx[0] < 0 || selectedIdx[0] >= displayProfiles.size()) {
                 Toast.makeText(this, "Select a profile first", Toast.LENGTH_SHORT).show();
                 return;
             }
-            ProfileInfo sel = cachedProfiles.get(selectedIdx[0]);
+            ProfileInfo sel = displayProfiles.get(selectedIdx[0]);
             if (sel.isCCSwitch()) {
                 Toast.makeText(this, "CC Switch profiles cannot be renamed here", Toast.LENGTH_SHORT).show();
                 return;
@@ -868,11 +876,11 @@ public class MainActivity extends AppCompatActivity {
 
         TextView deleteBtn = dialogButton("Delete", 0xFFFF6B6B, padH, padV);
         deleteBtn.setOnClickListener(v -> {
-            if (selectedIdx[0] < 0 || selectedIdx[0] >= cachedProfiles.size()) {
+            if (selectedIdx[0] < 0 || selectedIdx[0] >= displayProfiles.size()) {
                 Toast.makeText(this, "Select a profile first", Toast.LENGTH_SHORT).show();
                 return;
             }
-            ProfileInfo sel = cachedProfiles.get(selectedIdx[0]);
+            ProfileInfo sel = displayProfiles.get(selectedIdx[0]);
             if (sel.isCCSwitch()) {
                 Toast.makeText(this, "CC Switch profiles cannot be deleted here", Toast.LENGTH_SHORT).show();
                 return;
