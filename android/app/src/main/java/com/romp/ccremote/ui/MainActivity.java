@@ -64,8 +64,11 @@ public class MainActivity extends AppCompatActivity {
     private final WebSocketManager.ProfileListListener profileListListener = this::onProfileList;
 
     private final WebSocketManager.MessageListener messageListener = (type, data) -> {
-        // Auto-refresh session list when a session is created, killed or deleted
-        if ("session_created".equals(type) || "session_killed".equals(type) || "session_deleted".equals(type)) {
+        // Auto-refresh session list when a session is created, killed, deleted,
+        // stopped or resumed
+        if ("session_created".equals(type) || "session_killed".equals(type)
+                || "session_deleted".equals(type) || "session_stopped".equals(type)
+                || "session_resumed".equals(type)) {
             refreshSessions();
         }
         // Auto-connect to newly created session

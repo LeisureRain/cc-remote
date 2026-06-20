@@ -7,7 +7,7 @@ public class SessionInfo {
     public String id;
     public String directory;
     public String createdAt;
-    public String status;      // "running" or "exited"
+    public String status;      // "running", "stopped" or "exited"
     public Integer exitCode;
     public int clientCount;
     public int bufferSize;
@@ -16,6 +16,10 @@ public class SessionInfo {
 
     public boolean isRunning() {
         return "running".equals(status);
+    }
+
+    public boolean isStopped() {
+        return "stopped".equals(status);
     }
 
     public String getDisplayTitle() {
@@ -34,6 +38,9 @@ public class SessionInfo {
     public String getDisplayStatus() {
         if (isRunning()) {
             return "● Running";
+        }
+        if (isStopped()) {
+            return "⏸ Stopped";
         }
         return "✕ Exited (" + (exitCode != null ? exitCode : "?") + ")";
     }

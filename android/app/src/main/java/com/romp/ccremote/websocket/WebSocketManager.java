@@ -406,9 +406,18 @@ public class WebSocketManager {
         return send(gson.toJson(msg));
     }
 
-    public boolean sendKill(String sessionId) {
+    /** Stop (pause) a session — terminates the process but keeps it resumable. */
+    public boolean sendStop(String sessionId) {
         JsonObject msg = new JsonObject();
-        msg.addProperty("type", "kill_session");
+        msg.addProperty("type", "stop_session");
+        msg.addProperty("session_id", sessionId);
+        return send(gson.toJson(msg));
+    }
+
+    /** Resume a previously stopped session (relaunches its claude process). */
+    public boolean sendResume(String sessionId) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "resume_session");
         msg.addProperty("session_id", sessionId);
         return send(gson.toJson(msg));
     }

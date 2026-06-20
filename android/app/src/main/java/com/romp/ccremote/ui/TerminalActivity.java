@@ -236,12 +236,23 @@ public class TerminalActivity extends AppCompatActivity
         getMenuInflater().inflate(R.menu.terminal_menu, menu); return true;
     }
 
+    @Override public boolean onPrepareOptionsMenu(Menu menu) {
+        // Stop is for a running session; Resume is for a stopped one — show
+        // whichever applies so the action matches the session's current state.
+        MenuItem stop = menu.findItem(R.id.action_stop);
+        MenuItem resume = menu.findItem(R.id.action_resume);
+        if (stop != null) stop.setVisible(isSessionRunning);
+        if (resume != null) resume.setVisible(!isSessionRunning);
+        return super.onPrepareOptionsMenu(menu);
+    }
+
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
         if (id == android.R.id.home) { finish(); return true; /* no disconnect */ }
         if (id == R.id.action_disconnect) { disconnectAndFinish(); return true; }
-        if (id == R.id.action_kill) { confirmKill(); return true; }
+        if (id == R.id.action_stop) { confirmStop(); return true; }
+        if (id == R.id.action_resume) { doResume(); return true; }
         if (id == R.id.action_delete) { confirmDelete(); return true; }
         return super.onOptionsItemSelected(item);
     }
@@ -252,17 +263,23 @@ public class TerminalActivity extends AppCompatActivity
         finish();
     }
 
-    private void confirmKill() {
+    /** Stop (pause) the session — keeps it resumable; stays on this screen. */
+    private void confirmStop() {
         new AlertDialog.Builder(this)
-                .setTitle("Kill Session")
-                .setMessage("Terminate this Claude Code process on the server?")
-                .setPositiveButton("Kill", (d, w) -> {
-                    WebSocketManager.getInstance().sendKill(sessionId);
-                    ClawForegroundService.stop(this);
-                    Toast.makeText(this, "Session killed", Toast.LENGTH_SHORT).show();
-                    finish();
+                .setTitle("Stop Session")
+                .setMessage("Stop this session? The Claude process will be terminated, "
+                        + "but the session and its history are kept so you can resume it later.")
+                .setPositiveButton("Stop", (d, w) -> {
+                    WebSocketManager.getInstance().sendStop(sessionId);
+                    Toast.makeText(this, "Stopping session…", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null).create().show();
+    }
+
+    /** Resume a stopped session — relaunches its process on the server. */
+    private void doResume() {
+        WebSocketManager.getInstance().sendResume(sessionId);
+        Toast.makeText(this, "Resuming session…", Toast.LENGTH_SHORT).show();
     }
 
     private void confirmDelete() {
@@ -289,7 +306,27 @@ public class TerminalActivity extends AppCompatActivity
 
         switch (type) {
             case "chat_history":     handleChatHistory(data); break;
-            case "session_connected": isSessionRunning = "running".equals(data.get("status").getAsString()); runOnUiThread(this::updateToolbarStatus); break;
+            case "session_connected": isSessionRunning = "running".equals(data.get("status").getAsString()); runOnUiThread(() -> { updateToolbarStatus(); invalidateOptionsMenu(); }); break;
+            case "session_stopped": {
+                isSessionRunning = false;
+                runOnUiThread(() -> {
+                    updateToolbarStatus();
+                    invalidateOptionsMenu();
+                    chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "— Session stopped (tap ⋮ → Resume to continue) —"));
+                    scrollToBottom();
+                });
+                break;
+            }
+            case "session_resumed": {
+                isSessionRunning = true;
+                runOnUiThread(() -> {
+                    updateToolbarStatus();
+                    invalidateOptionsMenu();
+                    chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "— Session resumed —"));
+                    scrollToBottom();
+                });
+                break;
+            }
             case "session_error":    handleError(data); break;
             case "error": {
                 // Generic server error (e.g. "previous message still processing").
@@ -490,6 +527,11 @@ public class TerminalActivity extends AppCompatActivity
         // Only reject truly empty input.
         final String raw = inputText.getText().toString();
         if (raw.trim().isEmpty()) return;
+
+        if (!isSessionRunning) {
+            Toast.makeText(this, "Session stopped — tap ⋮ → Resume to continue", Toast.LENGTH_SHORT).show();
+            return;
+        }
 
         final String text = raw;
 
