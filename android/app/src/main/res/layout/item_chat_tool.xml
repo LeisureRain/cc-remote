@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tool call progress indicator — compact left-aligned row, amber -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="start"
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="2dp">
+
+    <TextView
+        android:id="@+id/tool_name"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bubble_claude"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="4dp"
+        android:textColor="#FFD43B"
+        android:textSize="12sp"
+        android:textStyle="italic"
+        android:fontFamily="monospace"
+        android:layout_marginStart="6dp"
+        tools:text="  bash ..." />
+</LinearLayout>

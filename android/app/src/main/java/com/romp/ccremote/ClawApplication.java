@@ -3,6 +3,7 @@ package com.romp.ccremote;
 import android.app.Application;
 
 import com.romp.ccremote.websocket.WebSocketManager;
+import com.romp.ccremote.util.ChatHistoryStore;
 import com.romp.ccremote.util.PreferencesHelper;
 
 /**
@@ -16,6 +17,7 @@ public class ClawApplication extends Application {
         super.onCreate();
         instance = this;
         PreferencesHelper.init(this);
+        ChatHistoryStore.init(this);
         WebSocketManager.init();
         com.romp.ccremote.service.ClawForegroundService.initChannel(this);
     }

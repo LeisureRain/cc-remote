@@ -22,6 +22,7 @@ import com.google.gson.JsonObject;
 import com.romp.ccremote.R;
 import com.romp.ccremote.model.ChatMessage;
 import com.romp.ccremote.service.ClawForegroundService;
+import com.romp.ccremote.util.ChatHistoryStore;
 import com.romp.ccremote.websocket.WebSocketManager;
 
 public class TerminalActivity extends AppCompatActivity
@@ -34,8 +35,6 @@ public class TerminalActivity extends AppCompatActivity
     private RecyclerView chatList;
     private ChatAdapter chatAdapter;
     private LinearLayoutManager layoutManager;
-    private androidx.appcompat.widget.SwitchCompat switchContinue;
-
     private String sessionId;
     private String sessionDirectory;
     private volatile boolean isSessionRunning = true;
@@ -45,6 +44,9 @@ public class TerminalActivity extends AppCompatActivity
     private boolean streaming = false;
     private final StringBuilder streamBuf = new StringBuilder();
     private boolean streamRenderScheduled = false;
+
+    // Track the last user message for local persistence pairing
+    private ChatMessage lastSentUser = null;
 
     private final WebSocketManager.MessageListener messageListener = this::onMessage;
     private final WebSocketManager.ConnectionListener connectionListener = this::onConnectionChanged;
@@ -85,8 +87,6 @@ public class TerminalActivity extends AppCompatActivity
         toolbarTitle.setText(getDisplayDir(sessionDirectory));
         updateToolbarStatus();
 
-        switchContinue = findViewById(R.id.switch_continue);
-
         // Restore unsent draft for this session
         String draft = com.romp.ccremote.util.PreferencesHelper.getInputDraft(sessionId);
         if (draft != null && !draft.isEmpty()) {
@@ -115,6 +115,15 @@ public class TerminalActivity extends AppCompatActivity
                 autoScroll = last >= chatAdapter.getItemCount() - 2;
             }
         });
+
+        // Load any locally-cached chat history so the user sees messages
+        // immediately, before the WebSocket reconnects and server sends
+        // the canonical chat_history (which will overwrite this).
+        java.util.List<ChatMessage> cached = ChatHistoryStore.getInstance().load(sessionId);
+        if (!cached.isEmpty()) {
+            for (ChatMessage m : cached) chatAdapter.addMessage(m);
+            scrollToBottom();
+        }
 
         // Input
         inputText.setOnKeyListener((v, code, event) -> {
@@ -192,6 +201,12 @@ public class TerminalActivity extends AppCompatActivity
             sessionDirectory = intent.getStringExtra("session_directory");
             toolbarTitle.setText(getDisplayDir(sessionDirectory));
             chatAdapter.clear();
+            // Load local cache for the new session immediately
+            java.util.List<ChatMessage> cached = ChatHistoryStore.getInstance().load(sessionId);
+            if (!cached.isEmpty()) {
+                for (ChatMessage m : cached) chatAdapter.addMessage(m);
+                scrollToBottom();
+            }
             WebSocketManager.getInstance().sendConnectSession(sessionId);
         }
     }
@@ -295,6 +310,12 @@ public class TerminalActivity extends AppCompatActivity
                 runOnUiThread(() -> finalizeTurn(text));
                 break;
             }
+            case "session_tool": {
+                String status = data.has("status") ? data.get("status").getAsString() : "";
+                String name = data.has("name") ? data.get("name").getAsString() : "";
+                runOnUiThread(() -> onToolEvent(status, name));
+                break;
+            }
         }
     }
 
@@ -322,8 +343,22 @@ public class TerminalActivity extends AppCompatActivity
         streamRenderScheduled = false;
         // Render as plain text while streaming (cheap); markdown on finalize.
         chatAdapter.updateLastText(streamBuf.toString(), false);
-        scrollToBottom();
+        // Don't call scrollToBottom() here — the RecyclerView's
+        // setStackFromEnd(true) already keeps the bottom visible as the
+        // item grows. Explicit scrolling during rapid incremental updates
+        // fights the layout manager and causes visible jitter.
     };
+
+    /** Insert or remove tool call progress indicators (P3). */
+    private void onToolEvent(String status, String toolName) {
+        if ("running".equals(status)) {
+            String name = toolName != null ? toolName : "tool";
+            chatAdapter.addMessage(new ChatMessage(name));
+            scrollToBottom();
+        } else if ("done".equals(status)) {
+            chatAdapter.removeTrailingTools();
+        }
+    }
 
     private void scheduleStreamRender() {
         if (streamRenderScheduled) return;
@@ -339,13 +374,22 @@ public class TerminalActivity extends AppCompatActivity
         streaming = false;
         streamBuf.setLength(0);
         setStreaming(false);
+        // Clean up any lingering tool indicators (P3)
+        chatAdapter.removeTrailingTools();
         if (text == null || text.isEmpty()) {
             // Empty final with nothing streamed — drop a dangling placeholder.
             if (!wasStreaming) return;
             text = "";
         }
-        chatAdapter.replaceLast(new ChatMessage(ChatMessage.TYPE_CLAUDE, text));
+        ChatMessage claudeMsg = new ChatMessage(ChatMessage.TYPE_CLAUDE, text);
+        chatAdapter.replaceLast(claudeMsg);
         scrollToBottom();
+
+        // Persist this turn locally so the user can browse offline later
+        if (lastSentUser != null) {
+            ChatHistoryStore.getInstance().appendTurn(sessionId, lastSentUser, claudeMsg);
+            lastSentUser = null;
+        }
     }
 
     /** Toggle the send button between Send and Stop. */
@@ -374,6 +418,8 @@ public class TerminalActivity extends AppCompatActivity
                     int type = "user".equals(role) ? ChatMessage.TYPE_USER : ChatMessage.TYPE_CLAUDE;
                     chatAdapter.addMessage(new ChatMessage(type, text, ts));
                 }
+                // Server is source of truth — overwrite local cache
+                ChatHistoryStore.getInstance().saveFromEntries(sessionId, entries);
             }
             if (data.has("pending") && !data.get("pending").isJsonNull()) {
                 chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "Processing…"));
@@ -431,7 +477,8 @@ public class TerminalActivity extends AppCompatActivity
 
         inputText.setText("");
         com.romp.ccremote.util.PreferencesHelper.clearInputDraft(sessionId);
-        chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_USER, text.trim()));
+        lastSentUser = new ChatMessage(ChatMessage.TYPE_USER, text.trim());
+        chatAdapter.addMessage(lastSentUser);
         chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "Thinking…"));
 
         // Scroll without guard — always go to bottom after sending
@@ -440,11 +487,7 @@ public class TerminalActivity extends AppCompatActivity
             chatList.scrollToPosition(target);
         }, 100);
 
-        // Note: the persistent process always continues, so the `continue`
-        // flag is no longer meaningful; we send it for protocol compat only.
-        final boolean useContinue = switchContinue.isChecked();
-
-        if (!wm.sendChat(sessionId, text.trim(), useContinue)) {
+        if (!wm.sendChat(sessionId, text.trim())) {
             chatAdapter.removeLast();
             Toast.makeText(this, "Send failed", Toast.LENGTH_SHORT).show();
         }

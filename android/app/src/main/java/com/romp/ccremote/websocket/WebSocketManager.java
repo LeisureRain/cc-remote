@@ -392,15 +392,10 @@ public class WebSocketManager {
     }
 
     public boolean sendChat(String sessionId, String text) {
-        return sendChat(sessionId, text, true);
-    }
-
-    public boolean sendChat(String sessionId, String text, boolean useContinue) {
         JsonObject msg = new JsonObject();
         msg.addProperty("type", "send_chat");
         msg.addProperty("session_id", sessionId);
         msg.addProperty("text", text);
-        msg.addProperty("continue", useContinue);
         return send(gson.toJson(msg));
     }
 

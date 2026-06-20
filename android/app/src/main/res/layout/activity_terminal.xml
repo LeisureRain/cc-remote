@@ -19,7 +19,7 @@
         android:theme="@style/ToolbarTheme"
         app:popupTheme="@style/WhitePopupMenu">
 
-        <!-- Custom content: title + spacer + continue switch -->
+        <!-- Custom content: title + status -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
@@ -46,27 +46,6 @@
                 android:textSize="11sp"
                 tools:text="● connected" />
 
-            <View
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-
-            <TextView
-                android:id="@+id/continue_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="continue"
-                android:textColor="#8b949e"
-                android:textSize="11sp"
-                android:layout_marginEnd="4dp" />
-
-            <androidx.appcompat.widget.SwitchCompat
-                android:id="@+id/switch_continue"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:checked="true"
-                android:thumbTint="#74c0fc"
-                android:trackTint="#30363d" />
         </LinearLayout>
     </com.google.android.material.appbar.MaterialToolbar>
 
