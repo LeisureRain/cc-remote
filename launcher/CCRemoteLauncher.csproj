@@ -31,6 +31,8 @@
     <Reference Include="System.Drawing" />
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
+    <!-- JavaScriptSerializer — parse the server's /health JSON for the session list. -->
+    <Reference Include="System.Web.Extensions" />
   </ItemGroup>
 
   <!-- The entire server (src + production node_modules + default config.json) is embedded
