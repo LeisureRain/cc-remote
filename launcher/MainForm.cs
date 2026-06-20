@@ -129,6 +129,9 @@ namespace CCRemoteLauncher
             _sessions.Columns.Add("消息", 55, HorizontalAlignment.Center);
             _sessions.Columns.Add("创建时间", 120);
             _sessions.Columns.Add("目录", 320);
+            // Last column (目录) flexes to fill the panel so the table never needs a
+            // horizontal scrollbar; recompute whenever the list is resized.
+            _sessions.Resize += (s, e) => FitSessionColumns();
 
             // --- split: session list on top, log below ---
             _split = new SplitContainer
@@ -198,6 +201,7 @@ namespace CCRemoteLauncher
             _port = ServerLocator.ReadPort(_serverDir);
             // Give the session list a sensible initial share of the window.
             try { _split.SplitterDistance = 170; } catch { /* tiny window — ignore */ }
+            FitSessionColumns();
             UpdateState();
             _pollTimer.Start();
             StartServer(); // auto-start on launch
@@ -342,6 +346,25 @@ namespace CCRemoteLauncher
         // ==========================================================
         // Session list — poll the server's /health and render (read-only)
         // ==========================================================
+
+        /// <summary>
+        /// Size the last column (目录) to absorb the leftover width so the table fits
+        /// the panel exactly and never shows a horizontal scrollbar. ClientSize.Width
+        /// already excludes the vertical scrollbar when one is present.
+        /// </summary>
+        private void FitSessionColumns()
+        {
+            if (_sessions == null || _sessions.Columns.Count == 0) return;
+
+            int fixedWidth = 0;
+            for (int i = 0; i < _sessions.Columns.Count - 1; i++)
+                fixedWidth += _sessions.Columns[i].Width;
+
+            int last = _sessions.Columns.Count - 1;
+            int avail = _sessions.ClientSize.Width - fixedWidth - 4; // 4px guard
+            _sessions.Columns[last].Width = Math.Max(60, avail);
+        }
+
         private void PollSessions()
         {
             if (!IsRunning)
@@ -433,7 +456,11 @@ namespace CCRemoteLauncher
         {
             _uiPollOk = ok;
             _uiSessionCount = (ok && rows != null) ? rows.Count : 0;
-            _uiClientCount = ok ? clients : 0;
+            // Prefer the server's top-level live-connection count, but fall back to the
+            // sum of per-session watchers so the figure is never stuck at 0 against an
+            // older server that doesn't emit the top-level `clients` field.
+            int sessionClients = (ok && rows != null) ? rows.Sum(r => r.ClientCount) : 0;
+            _uiClientCount = ok ? Math.Max(clients, sessionClients) : 0;
 
             _sessions.BeginUpdate();
             try
