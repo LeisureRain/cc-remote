@@ -112,6 +112,29 @@ class SessionManager {
   }
 
   /**
+   * Restart every running session's claude process so they pick up the
+   * current profile (CC Remote's active-settings.json overlay + model).
+   * Server-driven: called after a profile switch instead of relying on any
+   * one client to ask for a restart. Idle sessions restart silently; a
+   * mid-turn session is interrupted first (see ClaudeSession.restart).
+   * @returns {number} count of sessions asked to restart
+   */
+  restartAll() {
+    let count = 0;
+    for (const [id, session] of this.sessions) {
+      if (!session.isRunning) continue;
+      try {
+        session.restart();
+        count++;
+      } catch (err) {
+        console.error(`[SessionManager] Failed to restart session ${id}:`, err.message);
+      }
+    }
+    console.log(`[SessionManager] restartAll() restarted ${count} session(s)`);
+    return count;
+  }
+
+  /**
    * Clean up exited sessions that have no clients
    */
   cleanup() {

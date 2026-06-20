@@ -16,6 +16,7 @@ const os = require('os');
 const url = require('url');
 const { exec } = require('child_process');
 const { SessionManager } = require('./session-manager');
+const { ACTIVE_SETTINGS_FILE } = require('./claude-session');
 const ccSwitch = require('./cc-switch');
 
 // ============================================================
@@ -177,6 +178,59 @@ function writeProfileFile(id, data) {
 
 function generateProfileId() {
   return crypto.randomBytes(4).toString('hex');
+}
+
+// ============================================================
+// Active profile overlay — CC Remote's PRIVATE settings file
+// ============================================================
+// Instead of overwriting the shared ~/.claude/settings.json (which collides
+// with the CC Switch desktop app), CC Remote writes the active profile's
+// content here and launches every `claude` with `--settings <this file>`.
+// See ACTIVE_SETTINGS_FILE in claude-session.js for the why.
+
+/**
+ * Return the settings content (object) of the currently-active profile, or
+ * null if none. Resolves native profiles first (server/profiles/<id>.json),
+ * then CC Switch profiles (read from the DB on demand).
+ */
+function resolveActiveProfileContent() {
+  const idx = readProfileIndex();
+  const activeId = idx.active || '';
+  if (!activeId) return null;
+  // Native profile?
+  if (idx.profiles.some(p => p.id === activeId)) {
+    try { return readProfileFile(activeId).content || {}; }
+    catch (e) { console.warn(`[Profiles] Active native profile ${activeId} unreadable: ${e.message}`); }
+  }
+  // CC Switch profile?
+  if (ccSwitch.isAvailable()) {
+    const cc = ccSwitch.getCCSwitchProfile(activeId);
+    if (cc) return cc.content || {};
+  }
+  return null;
+}
+
+/**
+ * Write the given settings object to CC Remote's private overlay file.
+ * An empty/null object means "no overlay" — claude falls back to the user's
+ * global ~/.claude/settings.json (a clean no-op merge).
+ */
+function writeActiveSettings(content) {
+  if (!fs.existsSync(PROFILES_DIR)) fs.mkdirSync(PROFILES_DIR, { recursive: true });
+  fs.writeFileSync(ACTIVE_SETTINGS_FILE, JSON.stringify(content || {}, null, 2), 'utf8');
+}
+
+/**
+ * Rebuild active-settings.json from the currently-active profile. Called on
+ * startup (so restored/resumed sessions launch with the right overlay) and
+ * after every profile switch.
+ */
+function syncActiveSettings() {
+  try {
+    writeActiveSettings(resolveActiveProfileContent());
+  } catch (e) {
+    console.error(`[Profiles] Failed to sync active settings: ${e.message}`);
+  }
 }
 
 function sendUnauth(res) {
@@ -542,13 +596,12 @@ wss.on('connection', (ws, req) => {
           }
         }
 
-        // Determine active: CC Switch's is_current flag takes priority,
-        // then native index's active field
-        let activeId = idx.active || '';
-        if (ccSwitch.isAvailable()) {
-          const ccActive = profiles.find(p => p.source === 'cc-switch' && p.isCurrent);
-          if (ccActive) activeId = ccActive.id;
-        }
+        // Active profile = whatever CC Remote itself last switched to (our own
+        // index is the single source of truth). We deliberately do NOT follow
+        // CC Switch's is_current flag here: CC Remote drives sessions via its
+        // private overlay, so the DB's idea of "current" can legitimately differ
+        // and following it caused the checkmark to disagree with the real model.
+        const activeId = idx.active || '';
 
         sendToClient(ws, { type: 'profile_list', profiles, active: activeId });
         break;
@@ -635,10 +688,12 @@ wss.on('connection', (ws, req) => {
         if (!sId) { sendToClient(ws, { type: 'error', message: 'Profile ID is required' }); return; }
         const sSource = message.source || 'native';
 
-        const claudeDir = path.join(os.homedir(), '.claude');
-        const settingsPath = path.join(claudeDir, 'settings.json');
-
-        // — CC Switch profile —
+        // Resolve the profile's settings content. CC Remote NEVER writes the
+        // shared ~/.claude/settings.json — it drives sessions via its own
+        // private overlay (active-settings.json) passed as `claude --settings`,
+        // so it can't collide with the CC Switch desktop app.
+        let switchContent = null;
+        let switchName = '';
         if (sSource === 'cc-switch') {
           if (!ccSwitch.isAvailable()) {
             sendToClient(ws, { type: 'error', message: 'CC Switch database not available' });
@@ -649,39 +704,29 @@ wss.on('connection', (ws, req) => {
             sendToClient(ws, { type: 'error', message: 'CC Switch profile not found' });
             return;
           }
-          try {
-            if (!fs.existsSync(claudeDir)) fs.mkdirSync(claudeDir, { recursive: true });
-            if (fs.existsSync(settingsPath)) {
-              try { fs.copyFileSync(settingsPath, settingsPath + '.bak'); } catch (_) { /* best effort */ }
-            }
-            fs.writeFileSync(settingsPath, JSON.stringify(ccProfile.content, null, 2), 'utf8');
-            // Update native index to track active (even though source is cc-switch)
-            const ni = readProfileIndex();
-            ni.active = sId;
-            writeProfileIndex(ni);
-            sendToClient(ws, { type: 'profile_switched', id: sId, name: ccProfile.name });
-          } catch (e) {
-            sendToClient(ws, { type: 'error', message: 'Failed to switch profile: ' + e.message });
-          }
-          return;
+          switchContent = ccProfile.content || {};
+          switchName = ccProfile.name;
+        } else {
+          const si = readProfileIndex();
+          const sIdx = si.profiles.findIndex(p => p.id === sId);
+          if (sIdx === -1) { sendToClient(ws, { type: 'error', message: 'Profile not found' }); return; }
+          switchContent = readProfileFile(sId).content || {};
+          switchName = si.profiles[sIdx].name;
         }
 
-        // — Native profile (existing logic) —
-        const si = readProfileIndex();
-        const sIdx = si.profiles.findIndex(p => p.id === sId);
-        if (sIdx === -1) { sendToClient(ws, { type: 'error', message: 'Profile not found' }); return; }
-        const sProfile = readProfileFile(sId);
         try {
-          if (!fs.existsSync(claudeDir)) fs.mkdirSync(claudeDir, { recursive: true });
-          // Back up the current settings.json before overwriting, so a switch
-          // never silently destroys an existing config.
-          if (fs.existsSync(settingsPath)) {
-            try { fs.copyFileSync(settingsPath, settingsPath + '.bak'); } catch (_) { /* best effort */ }
-          }
-          fs.writeFileSync(settingsPath, JSON.stringify(sProfile.content, null, 2), 'utf8');
-          si.active = sId;
-          writeProfileIndex(si);
-          sendToClient(ws, { type: 'profile_switched', id: sId, name: si.profiles[sIdx].name });
+          // 1) Update the private overlay file…
+          writeActiveSettings(switchContent);
+          // 2) …record the active profile in our own index (single source of
+          //    truth for "which profile is active")…
+          const ni = readProfileIndex();
+          ni.active = sId;
+          writeProfileIndex(ni);
+          // 3) …and restart every running session so they pick up the new
+          //    provider/model immediately. Server-driven — no dependency on
+          //    which client screen happens to be open.
+          const restarted = sessionManager.restartAll();
+          sendToClient(ws, { type: 'profile_switched', id: sId, name: switchName, restarted });
         } catch (e) {
           sendToClient(ws, { type: 'error', message: 'Failed to switch profile: ' + e.message });
         }
@@ -708,6 +753,10 @@ function sendToClient(ws, message) {
 
 // Restore previously persisted sessions before accepting connections
 sessionManager.ensureSessionsDir();
+// Build the private --settings overlay from the active profile BEFORE any
+// session spawns, so restored/resumed processes launch on the right provider.
+ensureProfilesDir();
+syncActiveSettings();
 sessionManager.restoreSessions();
 
 // Log CC Switch availability

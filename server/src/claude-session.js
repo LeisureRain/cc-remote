@@ -17,15 +17,30 @@ const { EventEmitter } = require('events');
 const { spawn } = require('child_process');
 const readline = require('readline');
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 
 // Max chat history entries retained per session (bounds memory + reconnect payload).
 const MAX_CHAT_HISTORY = 400;
 
 /**
- * Resolve the model to launch `claude` with, read fresh from the live
- * settings.json that the profile system overwrites on every switch.
+ * CC Remote's PRIVATE settings overlay, passed to every `claude` via
+ * `--settings <file>`. This is the mechanism that lets CC Remote drive a
+ * spawned process onto a chosen provider/profile WITHOUT writing the shared
+ * ~/.claude/settings.json (which collides with the CC Switch desktop app).
+ *
+ * Why --settings and not env vars: settings.json's `env` block OVERRIDES real
+ * process environment variables, so injecting ANTHROPIC_BASE_URL into the
+ * child's env has no effect. `--settings` is a high-precedence overlay that
+ * DOES win over the user's settings.json. (Verified empirically.)
+ *
+ * index.js owns writing this file (on startup and on every profile switch);
+ * here we only read it (for --settings and for the launch model).
+ */
+const ACTIVE_SETTINGS_FILE = path.join(__dirname, '..', 'profiles', 'active-settings.json');
+
+/**
+ * Resolve the model to launch `claude` with, read fresh from CC Remote's
+ * private active-settings.json overlay (the same file passed via --settings).
  *
  * Why force a model at all: `claude --resume` otherwise pins the model that is
  * recorded in the session's own history file. If the user has since switched to
@@ -36,7 +51,7 @@ const MAX_CHAT_HISTORY = 400;
  */
 function resolveCurrentModel() {
   try {
-    const raw = fs.readFileSync(path.join(os.homedir(), '.claude', 'settings.json'), 'utf8');
+    const raw = fs.readFileSync(ACTIVE_SETTINGS_FILE, 'utf8');
     const s = JSON.parse(raw);
     return (s && (s.model || (s.env && s.env.ANTHROPIC_MODEL))) || '';
   } catch (e) {
@@ -157,6 +172,12 @@ class ClaudeSession extends EventEmitter {
     if (this._resume) parts.push('--resume', this.id);
     else parts.push('--session-id', this.id);
     if (this.permissionMode) parts.push('--permission-mode', this.permissionMode);
+    // CC Remote's private profile overlay — overrides ~/.claude/settings.json
+    // (provider base_url/token/model) per-process without touching the global
+    // file. See ACTIVE_SETTINGS_FILE. Quoted in case the path contains spaces.
+    if (fs.existsSync(ACTIVE_SETTINGS_FILE)) {
+      parts.push('--settings', '"' + ACTIVE_SETTINGS_FILE + '"');
+    }
     // Force the currently-active model so `--resume` can't pin a stale model
     // from a proxy the user has since switched away from. Read fresh each start
     // so a resumed/restarted process follows the current profile.
@@ -220,9 +241,11 @@ class ClaudeSession extends EventEmitter {
 
     switch (obj.type) {
       case 'system':
-        if (obj.subtype === 'init' && !this.claudeSessionId) {
-          this.claudeSessionId = obj.session_id || null;
-          this.model = obj.model || null;
+        if (obj.subtype === 'init') {
+          // Re-broadcast on EVERY init (not only the first) so a restart after
+          // a profile switch propagates the freshly-resolved model to clients.
+          this.claudeSessionId = obj.session_id || this.claudeSessionId;
+          this.model = obj.model || this.model;
           this._broadcast({
             type: 'session_meta', session_id: this.id,
             claude_session_id: this.claudeSessionId, model: this.model,
@@ -474,4 +497,4 @@ class ClaudeSession extends EventEmitter {
   }
 }
 
-module.exports = { ClaudeSession };
+module.exports = { ClaudeSession, ACTIVE_SETTINGS_FILE };
