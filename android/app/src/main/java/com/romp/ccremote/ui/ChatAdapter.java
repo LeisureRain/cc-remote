@@ -80,13 +80,67 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
 
     /**
      * Remove all consecutive TYPE_TOOL messages at the end of the list.
-     * Used when a tool phase ends to clean up transient indicators.
+     * Used when finalizing a turn that produced no answer text, to drop a
+     * dangling indicator. The normal end-of-tool-phase path keeps tool lines
+     * (see {@link #markToolsDone()}).
      */
     public void removeTrailingTools() {
         while (!messages.isEmpty() && messages.get(messages.size() - 1).type == ChatMessage.TYPE_TOOL) {
             int pos = messages.size() - 1;
             messages.remove(pos);
             notifyItemRemoved(pos);
+        }
+    }
+
+    /** Mark every TYPE_TOOL message that is still "running" as done (dim + ✓). */
+    public void markToolsDone() {
+        for (int i = 0; i < messages.size(); i++) {
+            ChatMessage m = messages.get(i);
+            if (m.type == ChatMessage.TYPE_TOOL && !m.toolDone) {
+                m.toolDone = true;
+                notifyItemChanged(i);
+            }
+        }
+    }
+
+    /** Fill in the argument detail for the tool line matching toolId. */
+    public void updateToolDetail(String toolId, String detail) {
+        if (toolId == null || toolId.isEmpty()) return;
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            ChatMessage m = messages.get(i);
+            if (m.type == ChatMessage.TYPE_TOOL && toolId.equals(m.toolId)) {
+                m.toolDetail = detail;
+                notifyItemChanged(i);
+                return;
+            }
+        }
+    }
+
+    /** Markdown-render every Claude bubble from startPos to the end (used on
+     *  finalize for turns that streamed multiple interleaved text segments). */
+    public void renderClaudeFrom(int startPos) {
+        if (startPos < 0) startPos = 0;
+        for (int i = startPos; i < messages.size(); i++) {
+            ChatMessage m = messages.get(i);
+            if (m.type == ChatMessage.TYPE_CLAUDE && !m.showRendered) {
+                m.showRendered = true;
+                notifyItemChanged(i);
+            }
+        }
+    }
+
+    /** Replace the text of the last Claude bubble at/after fromPos and render it
+     *  as Markdown (used on finalize for the common single-segment turn). */
+    public void setLastClaudeText(int fromPos, String text) {
+        if (fromPos < 0) fromPos = 0;
+        for (int i = messages.size() - 1; i >= fromPos; i--) {
+            ChatMessage m = messages.get(i);
+            if (m.type == ChatMessage.TYPE_CLAUDE) {
+                m.text = text;
+                m.showRendered = true;
+                notifyItemChanged(i);
+                return;
+            }
         }
     }
 
@@ -143,7 +197,13 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
         if (msg.type == ChatMessage.TYPE_TOOL) {
             if (holder.toolNameView != null) {
                 String name = msg.toolName != null ? msg.toolName : "tool";
-                holder.toolNameView.setText("⚙ " + name);
+                String label = (msg.toolDone ? "✓ " : "⚙ ") + name;
+                if (msg.toolDetail != null && !msg.toolDetail.isEmpty()) {
+                    label += " · " + msg.toolDetail;
+                }
+                holder.toolNameView.setText(label);
+                // Dim finished tools so the running one stands out.
+                holder.toolNameView.setAlpha(msg.toolDone ? 0.6f : 1f);
             }
             return;
         }

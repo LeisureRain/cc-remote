@@ -38,13 +38,41 @@ public class TerminalActivity extends AppCompatActivity
     private volatile boolean isSessionRunning = true;
     private boolean autoScroll = true;
 
-    // Streaming state
-    private boolean streaming = false;
-    private final StringBuilder streamBuf = new StringBuilder();
+    // Turn / streaming state
+    private boolean turnActive = false;           // a turn is in flight (send → response)
+    private boolean streamingIntoBubble = false;  // currently appending text to a Claude bubble
+    private final StringBuilder streamBuf = new StringBuilder();       // current text segment
+    private final StringBuilder turnAnswerText = new StringBuilder();  // whole turn's answer text
     private boolean streamRenderScheduled = false;
+    private int turnStartIndex = 0;     // adapter index where the current turn began
+    private int turnTextSegments = 0;   // # of Claude text bubbles created this turn
+    private long turnStartMs = 0;
+    private long lastActivityMs = 0;
+    private final java.util.HashSet<String> turnToolIds = new java.util.HashSet<>();
+
+    // Live activity status bar
+    private android.view.View statusBar;
+    private TextView statusText;
+    private android.widget.ProgressBar statusSpinner;
+    private int statusPhase = PHASE_WORKING;
+    private String currentToolLabel = "";
+    private final android.os.Handler uiHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
+    private static final int PHASE_WORKING = 0, PHASE_THINKING = 1, PHASE_TOOL = 2, PHASE_WRITING = 3;
+    private static final long STUCK_MS = 30000;   // no activity for this long → "may be stuck"
+    private static final int COLOR_GREEN = 0xFF51CF66, COLOR_AMBER = 0xFFFFD43B;
 
     // Track the last user message for local persistence pairing
     private ChatMessage lastSentUser = null;
+
+    private final Runnable statusTick = new Runnable() {
+        @Override public void run() {
+            if (!turnActive) return;
+            updateStatusBar();
+            uiHandler.postDelayed(this, 1000);
+        }
+    };
 
     private final WebSocketManager.MessageListener messageListener = this::onMessage;
     private final WebSocketManager.ConnectionListener connectionListener = this::onConnectionChanged;
@@ -76,6 +104,11 @@ public class TerminalActivity extends AppCompatActivity
         chatList = findViewById(R.id.chat_list);
         inputText = findViewById(R.id.input_text);
         btnSend = findViewById(R.id.btn_send);
+        statusBar = findViewById(R.id.status_bar);
+        statusText = findViewById(R.id.status_text);
+        statusSpinner = findViewById(R.id.status_spinner);
+        // Tapping the live status bar interrupts the in-flight turn.
+        statusBar.setOnClickListener(v -> { if (turnActive) confirmInterrupt(); });
 
         setSupportActionBar(toolbar);
         if (getSupportActionBar() != null) {
@@ -126,7 +159,7 @@ public class TerminalActivity extends AppCompatActivity
         // Input — Enter inserts a newline (multi-line field); sending is done
         // explicitly via the send button so multi-line messages aren't cut off.
         btnSend.setOnClickListener(v -> {
-            if (streaming) confirmInterrupt();
+            if (turnActive) confirmInterrupt();
             else sendInput();
         });
 
@@ -176,6 +209,7 @@ public class TerminalActivity extends AppCompatActivity
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        uiHandler.removeCallbacks(statusTick);
         if (isFinishing()) {
             WebSocketManager wm = WebSocketManager.getInstance();
             wm.removeMessageListener(messageListener);
@@ -192,6 +226,8 @@ public class TerminalActivity extends AppCompatActivity
             sessionId = sid;
             sessionDirectory = intent.getStringExtra("session_directory");
             toolbarTitle.setText(getDisplayDir(sessionDirectory));
+            endTurnUi(); // drop any live status bar from the previous session
+            lastSentUser = null;
             chatAdapter.clear();
             // Load local cache for the new session immediately
             java.util.List<ChatMessage> cached = ChatHistoryStore.getInstance().load(sessionId);
@@ -212,6 +248,7 @@ public class TerminalActivity extends AppCompatActivity
         if (!sid.equals(sessionId)) return;
         isSessionRunning = false;
         runOnUiThread(() -> {
+            endTurnUi();
             updateToolbarStatus();
             chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "— Session killed —"));
         });
@@ -222,6 +259,7 @@ public class TerminalActivity extends AppCompatActivity
         if (!sid.equals(sessionId)) return;
         isSessionRunning = false;
         runOnUiThread(() -> {
+            endTurnUi();
             updateToolbarStatus();
             chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE,
                     "— Claude exited (code: " + exitCode + ") —"));
@@ -310,6 +348,7 @@ public class TerminalActivity extends AppCompatActivity
             case "session_stopped": {
                 isSessionRunning = false;
                 runOnUiThread(() -> {
+                    endTurnUi();
                     updateToolbarStatus();
                     invalidateOptionsMenu();
                     chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "— Session stopped (tap ⋮ → Resume to continue) —"));
@@ -330,13 +369,13 @@ public class TerminalActivity extends AppCompatActivity
             case "session_error":    handleError(data); break;
             case "error": {
                 // Generic server error (e.g. "previous message still processing").
-                // If a request placeholder is pending, replace it so it doesn't
-                // hang forever; otherwise just surface a toast.
+                // If a turn is in flight, settle it with the error inline so the
+                // status bar/button reset; otherwise just surface a toast.
                 String msg = data.has("message") ? data.get("message").getAsString() : "Error";
                 runOnUiThread(() -> {
-                    String last = chatAdapter.getLastText();
-                    if ("Thinking…".equals(last) || "Processing…".equals(last)) {
-                        chatAdapter.replaceLast(new ChatMessage(ChatMessage.TYPE_CLAUDE, "⚠ " + msg));
+                    if (turnActive) {
+                        String prefix = turnAnswerText.length() > 0 ? turnAnswerText + "\n\n" : "";
+                        finalizeTurn(prefix + "⚠ " + msg);
                     } else {
                         Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
                     }
@@ -357,7 +396,14 @@ public class TerminalActivity extends AppCompatActivity
             case "session_tool": {
                 String status = data.has("status") ? data.get("status").getAsString() : "";
                 String name = data.has("name") ? data.get("name").getAsString() : "";
-                runOnUiThread(() -> onToolEvent(status, name));
+                String id = data.has("id") ? data.get("id").getAsString() : "";
+                String detail = data.has("detail") && !data.get("detail").isJsonNull()
+                        ? data.get("detail").getAsString() : "";
+                runOnUiThread(() -> onToolEvent(status, name, id, detail));
+                break;
+            }
+            case "session_thinking": {
+                runOnUiThread(this::onThinking);
                 break;
             }
             case "profile_switched": {
@@ -373,43 +419,147 @@ public class TerminalActivity extends AppCompatActivity
     }
 
     // ============================================================
-    // Streaming render
+    // Streaming render + live activity status bar
     // ============================================================
 
-    /** Append a streamed chunk to the in-progress Claude bubble (throttled). */
+    /** Begin the in-flight-turn UI: status bar visible, button becomes Stop. */
+    private void startTurnUi(int startIndex) {
+        turnActive = true;
+        turnStartIndex = startIndex;
+        turnStartMs = System.currentTimeMillis();
+        lastActivityMs = turnStartMs;
+        streamingIntoBubble = false;
+        turnTextSegments = 0;
+        statusPhase = PHASE_WORKING;
+        currentToolLabel = "";
+        turnToolIds.clear();
+        streamBuf.setLength(0);
+        turnAnswerText.setLength(0);
+        setStreaming(true);
+        statusBar.setVisibility(android.view.View.VISIBLE);
+        updateStatusBar();
+        uiHandler.removeCallbacks(statusTick);
+        uiHandler.postDelayed(statusTick, 1000);
+    }
+
+    /** End the in-flight-turn UI: hide status bar, button becomes Send. */
+    private void endTurnUi() {
+        turnActive = false;
+        streamingIntoBubble = false;
+        uiHandler.removeCallbacks(statusTick);
+        setStreaming(false);
+        statusBar.setVisibility(android.view.View.GONE);
+    }
+
+    private void markActivity() { lastActivityMs = System.currentTimeMillis(); }
+
+    /** Render the live status line from the current phase + elapsed time. */
+    private void updateStatusBar() {
+        if (!turnActive) return;
+        long now = System.currentTimeMillis();
+        long elapsed = (now - turnStartMs) / 1000;
+        long idleMs = now - lastActivityMs;
+
+        String label;
+        switch (statusPhase) {
+            case PHASE_THINKING: label = "✳ Thinking…"; break;
+            case PHASE_TOOL:     label = "⚙ " + currentToolLabel; break;
+            case PHASE_WRITING:  label = "✍ Writing…"; break;
+            default:             label = "✳ Working…"; break;
+        }
+
+        int color;
+        String text;
+        if (idleMs > STUCK_MS) {
+            // No activity for a while — may be a long silent step or a hang.
+            color = COLOR_AMBER;
+            text = "⚠ " + label + " · no update " + (idleMs / 1000) + "s — tap to interrupt";
+        } else {
+            color = COLOR_GREEN;
+            text = label + "  " + elapsed + "s";
+        }
+        statusText.setTextColor(color);
+        statusText.setText(text);
+        if (statusSpinner.getIndeterminateDrawable() != null) {
+            statusSpinner.getIndeterminateDrawable()
+                    .setColorFilter(color, android.graphics.PorterDuff.Mode.SRC_IN);
+        }
+    }
+
+    /** Extended-thinking heartbeat from the server — keeps the bar "alive". */
+    private void onThinking() {
+        if (!turnActive) startTurnUi(chatAdapter.getItemCount());
+        markActivity();
+        if (statusPhase != PHASE_WRITING) statusPhase = PHASE_THINKING;
+        updateStatusBar();
+    }
+
+    /** Append a streamed chunk to the current Claude bubble (throttled). */
     private void onDelta(String delta) {
-        if (!streaming) {
-            streaming = true;
+        if (!turnActive) startTurnUi(chatAdapter.getItemCount());
+        markActivity();
+        statusPhase = PHASE_WRITING;
+        if (!streamingIntoBubble) {
+            // Start a fresh text segment (a new bubble below any tool lines).
+            ChatMessage bubble = new ChatMessage(ChatMessage.TYPE_CLAUDE, "");
+            bubble.showRendered = false; // plain while streaming; markdown on finalize
+            chatAdapter.addMessage(bubble);
+            streamingIntoBubble = true;
+            turnTextSegments++;
             streamBuf.setLength(0);
-            setStreaming(true);
-            // Ensure there is a Claude bubble to stream into (reuse the
-            // "Thinking…"/"Processing…" placeholder when present).
-            if (chatAdapter.getItemCount() == 0 || chatAdapter.isLastUser()) {
-                chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, ""));
-            }
+            scrollToBottom();
         }
         streamBuf.append(delta);
+        turnAnswerText.append(delta);
         scheduleStreamRender();
+        updateStatusBar();
     }
 
     private final Runnable streamRender = () -> {
         streamRenderScheduled = false;
-        // Render as plain text while streaming (cheap); markdown on finalize.
+        // Only safe while the Claude bubble is still the last row; a tool event
+        // ends the segment (streamingIntoBubble=false) before appending its line.
+        if (!streamingIntoBubble) return;
         chatAdapter.updateLastText(streamBuf.toString(), false);
-        // Don't call scrollToBottom() here — the RecyclerView's
-        // setStackFromEnd(true) already keeps the bottom visible as the
-        // item grows. Explicit scrolling during rapid incremental updates
-        // fights the layout manager and causes visible jitter.
+        // Don't call scrollToBottom() here — setStackFromEnd(true) keeps the
+        // bottom visible; explicit scrolling during rapid updates causes jitter.
     };
 
-    /** Insert or remove tool call progress indicators (P3). */
-    private void onToolEvent(String status, String toolName) {
+    /**
+     * Tool-call progress (P3). Tool lines are persistent: they stay in the
+     * transcript as a browsable trail of what Claude did, and the live status
+     * bar mirrors the running tool. `id` correlates the name event with the
+     * later detail event; `detail` is a short argument summary.
+     */
+    private void onToolEvent(String status, String toolName, String id, String detail) {
         if ("running".equals(status)) {
-            String name = toolName != null ? toolName : "tool";
-            chatAdapter.addMessage(new ChatMessage(name));
-            scrollToBottom();
+            markActivity();
+            // A tool ends the current text segment — flush it so the next text
+            // delta starts a new bubble below this tool line.
+            if (streamingIntoBubble) {
+                chatList.removeCallbacks(streamRender);
+                streamRenderScheduled = false;
+                chatAdapter.updateLastText(streamBuf.toString(), false);
+                streamingIntoBubble = false;
+            }
+            String name = toolName != null && !toolName.isEmpty() ? toolName : "tool";
+            if (id != null && !id.isEmpty() && turnToolIds.contains(id)) {
+                // Second event for the same tool — fill in its argument detail.
+                if (detail != null && !detail.isEmpty()) chatAdapter.updateToolDetail(id, detail);
+            } else {
+                if (id != null && !id.isEmpty()) turnToolIds.add(id);
+                chatAdapter.addMessage(new ChatMessage(name, id, detail));
+                scrollToBottom();
+            }
+            statusPhase = PHASE_TOOL;
+            currentToolLabel = name + (detail != null && !detail.isEmpty() ? " · " + detail : "");
+            updateStatusBar();
         } else if ("done".equals(status)) {
-            chatAdapter.removeTrailingTools();
+            markActivity();
+            chatAdapter.markToolsDone();
+            statusPhase = PHASE_WORKING;
+            currentToolLabel = "";
+            updateStatusBar();
         }
     }
 
@@ -419,33 +569,46 @@ public class TerminalActivity extends AppCompatActivity
         chatList.postDelayed(streamRender, 80);
     }
 
-    /** Finalize the current turn: render the canonical text as Markdown. */
+    /** Finalize the current turn: render the answer text as Markdown, settle UI. */
     private void finalizeTurn(String text) {
         chatList.removeCallbacks(streamRender);
         streamRenderScheduled = false;
-        boolean wasStreaming = streaming;
-        streaming = false;
-        streamBuf.setLength(0);
-        setStreaming(false);
-        // Clean up any lingering tool indicators (P3)
-        chatAdapter.removeTrailingTools();
-        if (text == null || text.isEmpty()) {
-            // Empty final with nothing streamed — drop a dangling placeholder.
-            if (!wasStreaming) return;
-            text = "";
+        // Flush any trailing partial segment into its bubble.
+        if (streamingIntoBubble) {
+            chatAdapter.updateLastText(streamBuf.toString(), false);
+            streamingIntoBubble = false;
         }
-        ChatMessage claudeMsg = new ChatMessage(ChatMessage.TYPE_CLAUDE, text);
-        chatAdapter.replaceLast(claudeMsg);
+        chatAdapter.markToolsDone();
+
+        // Canonical text == concatenation of all streamed segments. Prefer it
+        // (clean Markdown / guards against dropped deltas) when there is exactly
+        // one segment; with multiple interleaved segments, render them in place
+        // so we don't duplicate earlier text.
+        String answer = (text != null && !text.isEmpty()) ? text : turnAnswerText.toString();
+        if (turnTextSegments == 1 && answer != null && !answer.isEmpty()) {
+            chatAdapter.setLastClaudeText(turnStartIndex, answer);
+        } else if (turnTextSegments > 1) {
+            chatAdapter.renderClaudeFrom(turnStartIndex);
+        } else if (answer != null && !answer.isEmpty()) {
+            chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, answer));
+        }
+
+        endTurnUi();
         scrollToBottom();
 
         // Persist this turn locally so the user can browse offline later
         if (lastSentUser != null) {
-            ChatHistoryStore.getInstance().appendTurn(sessionId, lastSentUser, claudeMsg);
+            String persist = answer != null ? answer : "";
+            ChatHistoryStore.getInstance().appendTurn(sessionId, lastSentUser,
+                    new ChatMessage(ChatMessage.TYPE_CLAUDE, persist));
             lastSentUser = null;
         }
+        streamBuf.setLength(0);
+        turnAnswerText.setLength(0);
+        turnTextSegments = 0;
     }
 
-    /** Toggle the send button between Send and Stop. */
+    /** Toggle the send button between Send and Stop (Stop while a turn runs). */
     private void setStreaming(boolean s) {
         btnSend.setImageResource(s
                 ? android.R.drawable.ic_menu_close_clear_cancel
@@ -468,6 +631,7 @@ public class TerminalActivity extends AppCompatActivity
 
     private void handleChatHistory(JsonObject data) {
         runOnUiThread(() -> {
+            endTurnUi(); // history is the new source of truth; drop stale turn UI
             chatAdapter.clear();
             if (data.has("entries")) {
                 com.google.gson.JsonArray entries = data.getAsJsonArray("entries");
@@ -484,7 +648,9 @@ public class TerminalActivity extends AppCompatActivity
                 ChatHistoryStore.getInstance().saveFromEntries(sessionId, entries);
             }
             if (data.has("pending") && !data.get("pending").isJsonNull()) {
-                chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "Processing…"));
+                // A turn was already in flight on the server (e.g. reconnect):
+                // show the live status bar instead of a placeholder bubble.
+                startTurnUi(chatAdapter.getItemCount());
             }
             scrollToBottom();
         });
@@ -493,12 +659,11 @@ public class TerminalActivity extends AppCompatActivity
     private void handleError(JsonObject data) {
         String error = data.has("error") ? data.get("error").getAsString() : "Unknown error";
         runOnUiThread(() -> {
-            // While streaming, finalize the partial text with the error so the
-            // bubble settles and the button resets.
-            if (streaming) {
-                streamBuf.append("\n\n⚠ ").append(error);
-                finalizeTurn(streamBuf.toString());
-                streamBuf.setLength(0);
+            // While a turn is in flight, settle it with the error appended so the
+            // bubble settles and the status bar/button reset.
+            if (turnActive) {
+                String prefix = turnAnswerText.length() > 0 ? turnAnswerText + "\n\n" : "";
+                finalizeTurn(prefix + "⚠ " + error);
             } else {
                 chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "⚠ " + error));
             }
@@ -519,9 +684,9 @@ public class TerminalActivity extends AppCompatActivity
     // ============================================================
 
     private void sendInput() {
-        // If a turn is streaming, stop is handled in the button click — in
+        // If a turn is in flight, stop is handled in the button click — in
         // case we get here via keyboard, block sending while busy.
-        if (streaming) return;
+        if (turnActive) return;
 
         // Keep leading/trailing spaces so commands like "  indent" aren't lost.
         // Only reject truly empty input.
@@ -544,9 +709,11 @@ public class TerminalActivity extends AppCompatActivity
 
         inputText.setText("");
         com.romp.ccremote.util.PreferencesHelper.clearInputDraft(sessionId);
+        final int startIndex = chatAdapter.getItemCount();
         lastSentUser = new ChatMessage(ChatMessage.TYPE_USER, text.trim());
         chatAdapter.addMessage(lastSentUser);
-        chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "Thinking…"));
+        // Liveness is shown by the status bar (no placeholder bubble).
+        startTurnUi(startIndex);
 
         // Scroll without guard — always go to bottom after sending
         final int target = chatAdapter.getItemCount() - 1;
@@ -556,6 +723,7 @@ public class TerminalActivity extends AppCompatActivity
 
         if (!wm.sendChat(sessionId, text.trim())) {
             chatAdapter.removeLast();
+            endTurnUi();
             Toast.makeText(this, "Send failed", Toast.LENGTH_SHORT).show();
         }
     }

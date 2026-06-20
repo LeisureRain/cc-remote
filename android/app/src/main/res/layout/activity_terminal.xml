@@ -60,6 +60,44 @@
         android:paddingVertical="4dp"
         android:clipToPadding="false" />
 
+    <!-- Live activity status bar — shows what Claude is doing right now
+         (thinking / running a tool / writing) + elapsed time. Hidden when
+         no turn is in flight. Tapping it interrupts the current turn. -->
+    <LinearLayout
+        android:id="@+id/status_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:visibility="gone"
+        android:background="@color/bg_surface"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="8dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground">
+
+        <ProgressBar
+            android:id="@+id/status_spinner"
+            style="?android:attr/progressBarStyleSmall"
+            android:layout_width="18dp"
+            android:layout_height="18dp"
+            android:indeterminateTint="@color/text_green" />
+
+        <TextView
+            android:id="@+id/status_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:textColor="@color/text_green"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:maxLines="1"
+            android:ellipsize="end"
+            tools:text="✳ Thinking… 12s" />
+    </LinearLayout>
+
     <!-- Input bar -->
     <LinearLayout
         android:id="@+id/input_area"

@@ -20,5 +20,7 @@
         android:textStyle="italic"
         android:fontFamily="monospace"
         android:layout_marginStart="6dp"
-        tools:text="  bash ..." />
+        android:maxLines="1"
+        android:ellipsize="end"
+        tools:text="⚙ Bash · npm test" />
 </LinearLayout>

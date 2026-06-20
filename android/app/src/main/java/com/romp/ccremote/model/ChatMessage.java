@@ -13,6 +13,9 @@ public class ChatMessage {
     public long timestamp; // System.currentTimeMillis()
     public boolean showRendered = true; // true = render Markdown, false = plain text
     public String toolName; // tool name e.g. "bash", "read" — only set for TYPE_TOOL
+    public String toolId;   // claude tool_use id — used to fill in detail later (TYPE_TOOL)
+    public String toolDetail; // tool argument summary e.g. "npm test" (TYPE_TOOL)
+    public boolean toolDone; // true once the tool phase finished (TYPE_TOOL)
 
     public ChatMessage(int type, String text) {
         this(type, text, System.currentTimeMillis());
@@ -28,6 +31,16 @@ public class ChatMessage {
     public ChatMessage(String toolName) {
         this.type = TYPE_TOOL;
         this.toolName = toolName;
+        this.text = "";
+        this.timestamp = System.currentTimeMillis();
+    }
+
+    /** Constructor for TYPE_TOOL messages carrying a tool_use id + detail. */
+    public ChatMessage(String toolName, String toolId, String toolDetail) {
+        this.type = TYPE_TOOL;
+        this.toolName = toolName;
+        this.toolId = toolId;
+        this.toolDetail = toolDetail;
         this.text = "";
         this.timestamp = System.currentTimeMillis();
     }
