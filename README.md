@@ -149,19 +149,27 @@ Environment variables (`PORT`, `HOST`, `MAX_SESSIONS`, `WORKSPACE`, `PERMISSION_
 
 ### Where your data is stored
 
-The server keeps **all of its state inside the server directory itself — nothing is written to your home folder.** The two home-directory paths it touches are **read-only**: `~/.cc-switch/cc-switch.db` (to discover CC Switch profiles) and `~/.claude/settings.json` (snapshotted once when seeding the Default profile). Neither is ever modified.
+The server keeps **all of its state in one folder — its own "server directory" — and never writes to your home folder.** But *what that folder actually is* depends on how you launch, which is easy to get confused by:
 
-| File / folder | Location |
+| Launch method | Server directory (config, token, profiles, sessions all live here) |
 |---|---|
-| `config.json` | server directory |
-| `.cc-remote-token` (auth token) | server directory |
-| `profiles/` (overlay, index, local profiles) | server directory |
-| `sessions/` (persisted session state) | resolved from the **working directory** (`sessionsDir`, default `sessions`) |
+| `npm start` (run from `server/`) | the repo's `server/` folder — i.e. right where you started it |
+| **Windows launcher (`.exe`)** | `%LOCALAPPDATA%\CC-Remote\server` — **NOT next to the .exe** |
 
-- **`npm start`** runs with the working directory set to `server/`, so everything lands in `server/`.
-- **The Windows launcher** runs the server with its working directory set to `%LOCALAPPDATA%\CC-Remote\server`, so everything lands there.
+This split is intentional, and the launcher's behavior is the nicer one: the exe is a single portable file you can move around or re-download, while your `config.json`, auth token, profiles, and persisted sessions live in a stable per-user location and **survive upgrading to a newer exe**. So when using the launcher, don't go looking for your data beside the exe — it's under `%LOCALAPPDATA%\CC-Remote` (the launcher's **Open Server Folder** button takes you straight there).
 
-In both cases the working directory equals the server directory, so all files stay co-located. The only way they diverge is launching from a *different* directory (e.g. `node server/src/index.js` from the repo root) — then `sessions/` follows the working directory while the rest stays with the server. To pin sessions regardless of where you launch, set `sessionsDir` to an **absolute path** in `config.json`.
+The two home-directory paths the server touches are **read-only** and never modified: `~/.cc-switch/cc-switch.db` (to discover CC Switch profiles) and `~/.claude/settings.json` (snapshotted once when seeding the Default profile).
+
+Inside the server directory:
+
+| File / folder | Notes |
+|---|---|
+| `config.json` | port / host / workspace etc. |
+| `.cc-remote-token` | auto-generated auth token |
+| `profiles/` | private settings overlay, index, local profiles |
+| `sessions/` | persisted session state (`sessionsDir`, default `sessions`) |
+
+> One subtlety: `config.json`, the token, and `profiles/` are resolved relative to the server's *code* location, but `sessions/` is resolved relative to the *working directory*. Under both `npm start` and the launcher these coincide, so everything stays together. They only diverge if you start the server from some *other* directory (e.g. `node server/src/index.js` from the repo root) — then `sessions/` follows your shell's location. To pin it regardless, set `sessionsDir` to an **absolute path** in `config.json`.
 
 ## Provider Profiles & CC Switch Integration
 

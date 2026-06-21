@@ -148,19 +148,27 @@ node package-android.mjs   # -> dist/cc-remote-v<VERSION>.apk
 
 ### 数据存储位置
 
-服务端的**所有状态都保存在服务端目录内 —— 不会往你的用户目录（home）写任何东西。** 它只读取两个 home 路径,且**只读不写**:`~/.cc-switch/cc-switch.db`(发现 CC Switch 配置)和 `~/.claude/settings.json`(首次创建 Default profile 时快照一次)。两者都不会被修改。
+服务端的**所有状态都集中在一个文件夹 —— 它自己的「服务端目录」—— 且绝不往你的用户目录(home)写任何东西。** 但*这个文件夹具体是哪里*,取决于你的启动方式,这点很容易混淆:
 
-| 文件 / 目录 | 位置 |
+| 启动方式 | 服务端目录(config、token、profiles、sessions 全在这里) |
 |---|---|
-| `config.json` | 服务端目录 |
-| `.cc-remote-token`（鉴权 token） | 服务端目录 |
-| `profiles/`（覆盖文件、索引、本地 profile） | 服务端目录 |
-| `sessions/`（持久化的会话状态） | 由**工作目录**解析（`sessionsDir`,默认 `sessions`） |
+| `npm start`(在 `server/` 下运行) | 仓库的 `server/` 文件夹 —— 也就是你启动它的地方 |
+| **Windows 启动器(`.exe`)** | `%LOCALAPPDATA%\CC-Remote\server` —— **不在 .exe 旁边** |
 
-- **`npm start`** 的工作目录就是 `server/`,所以一切都落在 `server/`。
-- **Windows 启动器** 把服务端的工作目录设为 `%LOCALAPPDATA%\CC-Remote\server`,所以一切都落在那里。
+这种区别是**有意为之**,而且启动器的行为其实更好:exe 是一个可随意移动、可重新下载的单文件,而你的 `config.json`、鉴权 token、profiles、持久化会话都存在一个稳定的「按用户」目录里,**升级到新版 exe 也不会丢**。所以用启动器时,别去 exe 旁边找数据 —— 它在 `%LOCALAPPDATA%\CC-Remote` 下(启动器的 **Open Server Folder** 按钮可直接打开)。
 
-两种情况下工作目录都等于服务端目录,所有文件集中在一处。唯一会分裂的情况是从*别的*目录启动(例如在仓库根目录跑 `node server/src/index.js`)—— 此时 `sessions/` 会跟着工作目录走,其余仍留在服务端目录。想让 sessions 不受启动位置影响,把 `config.json` 里的 `sessionsDir` 设成**绝对路径**即可。
+服务端只读取两个 home 路径,且**只读不写、从不修改**:`~/.cc-switch/cc-switch.db`(发现 CC Switch 配置)和 `~/.claude/settings.json`(首次创建 Default profile 时快照一次)。
+
+服务端目录内部:
+
+| 文件 / 目录 | 说明 |
+|---|---|
+| `config.json` | 端口 / 主机 / 工作区等 |
+| `.cc-remote-token` | 自动生成的鉴权 token |
+| `profiles/` | 私有设置覆盖文件、索引、本地 profile |
+| `sessions/` | 持久化的会话状态(`sessionsDir`,默认 `sessions`) |
+
+> 一个细节:`config.json`、token 和 `profiles/` 是相对服务端**代码**位置解析的,而 `sessions/` 是相对**工作目录**解析的。在 `npm start` 和启动器两种方式下这两者重合,所以文件都在一起。只有当你从*别的*目录启动时(例如在仓库根目录跑 `node server/src/index.js`)才会分裂 —— 此时 `sessions/` 会跟着你 shell 所在的位置走。想让它不受启动位置影响,把 `config.json` 里的 `sessionsDir` 设成**绝对路径**即可。
 
 ## 供应商配置与 CC Switch 集成
 
