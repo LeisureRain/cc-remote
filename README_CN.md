@@ -146,6 +146,22 @@ node package-android.mjs   # -> dist/cc-remote-v<VERSION>.apk
 
 环境变量（`PORT`、`HOST`、`MAX_SESSIONS`、`WORKSPACE`、`PERMISSION_MODE`、`PERSIST_SESSIONS`、`SESSIONS_DIR`）可覆盖配置文件。鉴权 token 在首次运行时自动生成，保存在 `server/.cc-remote-token`。
 
+### 数据存储位置
+
+服务端的**所有状态都保存在服务端目录内 —— 不会往你的用户目录（home）写任何东西。** 它只读取两个 home 路径,且**只读不写**:`~/.cc-switch/cc-switch.db`(发现 CC Switch 配置)和 `~/.claude/settings.json`(首次创建 Default profile 时快照一次)。两者都不会被修改。
+
+| 文件 / 目录 | 位置 |
+|---|---|
+| `config.json` | 服务端目录 |
+| `.cc-remote-token`（鉴权 token） | 服务端目录 |
+| `profiles/`（覆盖文件、索引、本地 profile） | 服务端目录 |
+| `sessions/`（持久化的会话状态） | 由**工作目录**解析（`sessionsDir`,默认 `sessions`） |
+
+- **`npm start`** 的工作目录就是 `server/`,所以一切都落在 `server/`。
+- **Windows 启动器** 把服务端的工作目录设为 `%LOCALAPPDATA%\CC-Remote\server`,所以一切都落在那里。
+
+两种情况下工作目录都等于服务端目录,所有文件集中在一处。唯一会分裂的情况是从*别的*目录启动(例如在仓库根目录跑 `node server/src/index.js`)—— 此时 `sessions/` 会跟着工作目录走,其余仍留在服务端目录。想让 sessions 不受启动位置影响,把 `config.json` 里的 `sessionsDir` 设成**绝对路径**即可。
+
 ## 供应商配置与 CC Switch 集成
 
 CC Remote 可以直接在应用里切换 Claude Code 会话所使用的 **AI 供应商和模型** —— 而且**完全不碰**你全局的 `~/.claude/settings.json`。点击会话列表顶部的配置标签，选择一个配置并确认：服务端会重建私有的设置覆盖文件，并重启运行中的会话，让它们原子地切换到新的供应商/模型（新模型随后会在应用里显示出来）。

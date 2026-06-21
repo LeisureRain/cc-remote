@@ -147,6 +147,22 @@ Edit `server/config.json`:
 
 Environment variables (`PORT`, `HOST`, `MAX_SESSIONS`, `WORKSPACE`, `PERMISSION_MODE`, `PERSIST_SESSIONS`, `SESSIONS_DIR`) override the config file. The auth token is auto-generated on first run and stored in `server/.cc-remote-token`.
 
+### Where your data is stored
+
+The server keeps **all of its state inside the server directory itself — nothing is written to your home folder.** The two home-directory paths it touches are **read-only**: `~/.cc-switch/cc-switch.db` (to discover CC Switch profiles) and `~/.claude/settings.json` (snapshotted once when seeding the Default profile). Neither is ever modified.
+
+| File / folder | Location |
+|---|---|
+| `config.json` | server directory |
+| `.cc-remote-token` (auth token) | server directory |
+| `profiles/` (overlay, index, local profiles) | server directory |
+| `sessions/` (persisted session state) | resolved from the **working directory** (`sessionsDir`, default `sessions`) |
+
+- **`npm start`** runs with the working directory set to `server/`, so everything lands in `server/`.
+- **The Windows launcher** runs the server with its working directory set to `%LOCALAPPDATA%\CC-Remote\server`, so everything lands there.
+
+In both cases the working directory equals the server directory, so all files stay co-located. The only way they diverge is launching from a *different* directory (e.g. `node server/src/index.js` from the repo root) — then `sessions/` follows the working directory while the rest stays with the server. To pin sessions regardless of where you launch, set `sessionsDir` to an **absolute path** in `config.json`.
+
 ## Provider Profiles & CC Switch Integration
 
 CC Remote can switch the **AI provider and model** your Claude Code sessions run on — straight from the app, without ever touching your global `~/.claude/settings.json`. Tap the profile chip at the top of the session list, pick a profile, and confirm: the server rebuilds its private settings overlay and restarts running sessions so they pick up the new provider/model atomically (the new model then shows up in the app).
