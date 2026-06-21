@@ -74,7 +74,7 @@ Claude Code ships with its own [Remote Control](https://code.claude.com/docs/en/
 | **Windows launcher** | Terminal-only | Single `.exe` with a GUI, live log, and session list |
 
 **CC Remote is especially for:**
-- **Free / personal users** who don't have a claude.ai subscription — use an API key from any provider, at any price point.
+- **Users in regions where claude.ai isn't available** — Claude Code is free, but in many countries registering for an Anthropic account is difficult or impossible. With CC Remote you just point it at a third-party API proxy (or anyone else's compatible endpoint) and go.
 - **Third-party proxy users** — OpenRouter, LibreChat, AWS Bedrock, Vertex AI, any custom endpoint. Swap the `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` and you're in.
 - **Multi-provider workflows** — switch between different models and providers on the fly without leaving the app.
 - **Self-hosters** who want full control over networking, auth, and where their data goes.

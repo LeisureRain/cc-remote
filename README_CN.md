@@ -74,7 +74,7 @@ Claude Code 自带了 [Remote Control](https://code.claude.com/docs/zh-CN/remote
 | **Windows 启动器** | 只能开终端 | 单个 `.exe` 带图形界面、实时日志、会话列表 |
 
 **CC Remote 特别适合：**
-- **免费 / 个人用户** —— 没有 claude.ai 订阅？用任意供应商的 API Key，什么价位随你选。
+- **难以注册 Claude 官方账号的地区用户** —— Claude Code 本身是免费的，但在很多国家和地区注册 Anthropic 账号门槛很高甚至不可能。用 CC Remote，你只需要指向一个第三方 API 代理（或任何兼容接口）就能用。
 - **第三方代理用户** —— OpenRouter、LibreChat、AWS Bedrock、Vertex AI、各种自定义中转。改一下 `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` 就能用。
 - **多供应商工作流** —— 在 App 里随时切换不同模型和供应商，不需要退出重连。
 - **自建服务** —— 想完全掌控网络、鉴权和数据流向的用户。
