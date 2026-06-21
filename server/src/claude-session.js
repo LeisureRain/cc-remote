@@ -140,6 +140,7 @@ class ClaudeSession extends EventEmitter {
     this._chatPending = null;     // user message currently being processed
     this._turnText = '';          // accumulated assistant text for the active turn
     this._streaming = false;
+    this._turnStartedAt = 0;      // Date.now() when the current turn began (for elapsed)
 
     // Tool-call tracking (P3)
     this._activeToolCount = 0;    // number of tool_use blocks in the current turn
@@ -207,6 +208,7 @@ class ClaudeSession extends EventEmitter {
     session._chatBusy = false;
     session._turnText = '';
     session._streaming = false;
+    session._turnStartedAt = 0;
     session._activeToolCount = 0;
     session._toolPhaseHasText = false;
     session._toolBlocks = new Map();
@@ -522,6 +524,7 @@ class ClaudeSession extends EventEmitter {
     this._chatBusy = true;
     this._chatPending = prompt;
     this._turnText = '';
+    this._turnStartedAt = Date.now();
     this._activeToolCount = 0;       // P3: new turn, reset tool tracking
     this._toolPhaseHasText = false;
     this._toolBlocks.clear();
@@ -723,6 +726,11 @@ class ClaudeSession extends EventEmitter {
       session_id: this.id,
       entries: this._chatHistory,
       pending: this._chatPending,
+      // How long the in-flight turn has been running, so a client that
+      // (re)connects mid-turn can show an accurate elapsed timer instead of
+      // restarting it from zero. Relative ms avoids client/server clock skew.
+      pendingMs: this._chatPending && this._turnStartedAt
+        ? Date.now() - this._turnStartedAt : null,
     });
 
     // If a turn is streaming right now, send what we have so far.

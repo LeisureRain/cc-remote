@@ -81,7 +81,7 @@ All messages are JSON with a `type` field.
 | S→C | `session_resumed` | `session_id` (ack for `resume_session`; `session_meta` follows on init) |
 | S→C | `session_deleted` | `session_id` (ack for `delete_session`) |
 | S→C | `session_exited` | `session_id`, `exit_code` |
-| S→C | `chat_history` | `session_id`, `entries` (array), `pending` (string\|null) |
+| S→C | `chat_history` | `session_id`, `entries` (array), `pending` (string\|null), `pendingMs` (number\|null — how long the in-flight turn has been running, so a reconnecting client shows an accurate elapsed timer) |
 | S→C | `server_info` | `os`, `homeDir`, `pathSeparator`, `commonPaths`, `workspace` |
 | S→C | `directory_list` | `path`, `parent`, `entries` |
 | S→C | `error` | `message` |

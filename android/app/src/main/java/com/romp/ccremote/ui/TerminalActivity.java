@@ -656,9 +656,18 @@ public class TerminalActivity extends AppCompatActivity
                 ChatHistoryStore.getInstance().saveFromEntries(sessionId, entries);
             }
             if (data.has("pending") && !data.get("pending").isJsonNull()) {
-                // A turn was already in flight on the server (e.g. reconnect):
-                // show the live status bar instead of a placeholder bubble.
+                // A turn was already in flight on the server (e.g. reconnect or
+                // returning from background): show the live status bar and
+                // anchor the elapsed timer to the server's reported duration so
+                // it doesn't restart from zero each time we re-attach.
                 startTurnUi(chatAdapter.getItemCount());
+                if (data.has("pendingMs") && !data.get("pendingMs").isJsonNull()) {
+                    long pendingMs = data.get("pendingMs").getAsLong();
+                    if (pendingMs > 0) {
+                        turnStartMs = System.currentTimeMillis() - pendingMs;
+                        updateStatusBar();
+                    }
+                }
             }
             scrollToBottom();
         });
