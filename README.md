@@ -58,6 +58,29 @@ ZeroTier is just the easiest option — **anything that puts your phone and work
 
 > **⚠️ Security:** the connection is gated by the auto-generated **auth token**, but if you expose the port through a public relay (reverse tunnel / port forward), keep the token on and prefer a method that adds its own encryption/auth (VPN, Cloudflare Tunnel). Don't put a raw, unauthenticated port on the open internet.
 
+### vs. the official Claude Code Remote Control
+
+Claude Code ships with its own [Remote Control](https://code.claude.com/docs/en/remote-control) feature that lets you connect from `claude.ai/code` or the Claude mobile app. It works great if you have a **Pro / Max / Team / Enterprise** subscription — your phone connects through Anthropic's servers (no network config needed), and you can stream output, approve tool calls, and reply from anywhere.
+
+**CC Remote is built for a different audience:**
+
+| | Official Remote Control | CC Remote |
+|---|---|---|
+| **Account** | claude.ai subscription (paid plan) | **None** — just an API key (or any third-party proxy key) |
+| **Provider** | Anthropic only | **Any provider** — Anthropic, OpenAI, Gemini, OpenRouter, third-party proxies, local models… anything `claude` supports |
+| **Cost** | Included in plan (Pro $20/mo, Max $200/mo…) | **Free** (the app) + whatever your API provider charges |
+| **Network** | Routes through Anthropic's cloud (no inbound ports) | Direct LAN / VPN / tunnel — your machine, your network |
+| **Sessions** | Attach to a running terminal session | Full session lifecycle — create, stop, resume, delete, switch providers mid-session |
+| **Windows launcher** | Terminal-only | Single `.exe` with a GUI, live log, and session list |
+
+**CC Remote is especially for:**
+- **Free / personal users** who don't have a claude.ai subscription — use an API key from any provider, at any price point.
+- **Third-party proxy users** — OpenRouter, LibreChat, AWS Bedrock, Vertex AI, any custom endpoint. Swap the `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` and you're in.
+- **Multi-provider workflows** — switch between different models and providers on the fly without leaving the app.
+- **Self-hosters** who want full control over networking, auth, and where their data goes.
+
+If you have a paid Claude plan and just want basic remote access with zero setup, use the official Remote Control. If you want provider freedom, session management, a Windows GUI launcher, or don't run a subscription, use CC Remote.
+
 ## Features
 
 - **Session management** — create, list, connect, stop/resume, and delete Claude Code sessions; multiple sessions run concurrently
