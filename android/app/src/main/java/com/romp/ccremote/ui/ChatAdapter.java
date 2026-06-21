@@ -116,6 +116,21 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
         }
     }
 
+    /** Attach the execution result (output snippet + ok/error) to a tool line. */
+    public void updateToolResult(String toolId, boolean ok, String result) {
+        if (toolId == null || toolId.isEmpty()) return;
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            ChatMessage m = messages.get(i);
+            if (m.type == ChatMessage.TYPE_TOOL && toolId.equals(m.toolId)) {
+                m.toolResult = result;
+                m.toolError = !ok;
+                m.toolDone = true;
+                notifyItemChanged(i);
+                return;
+            }
+        }
+    }
+
     /** Markdown-render every Claude bubble from startPos to the end (used on
      *  finalize for turns that streamed multiple interleaved text segments). */
     public void renderClaudeFrom(int startPos) {
@@ -205,6 +220,15 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
                 // Dim finished tools so the running one stands out.
                 holder.toolNameView.setAlpha(msg.toolDone ? 0.6f : 1f);
             }
+            if (holder.toolResultView != null) {
+                if (msg.toolResult != null && !msg.toolResult.isEmpty()) {
+                    holder.toolResultView.setText("→ " + msg.toolResult);
+                    holder.toolResultView.setTextColor(msg.toolError ? 0xFFFF6B6B : 0xFFA0A0B0);
+                    holder.toolResultView.setVisibility(View.VISIBLE);
+                } else {
+                    holder.toolResultView.setVisibility(View.GONE);
+                }
+            }
             return;
         }
 
@@ -265,6 +289,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
         TextView timeView;
         TextView toggleBtn;
         TextView toolNameView;
+        TextView toolResultView;
         boolean isUser;
 
         Holder(View itemView, boolean isUser) {
@@ -274,6 +299,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
             timeView = itemView.findViewById(R.id.chat_time);
             toggleBtn = itemView.findViewById(R.id.btn_toggle_render);
             toolNameView = itemView.findViewById(R.id.tool_name);
+            toolResultView = itemView.findViewById(R.id.tool_result);
         }
     }
 }

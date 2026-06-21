@@ -399,7 +399,10 @@ public class TerminalActivity extends AppCompatActivity
                 String id = data.has("id") ? data.get("id").getAsString() : "";
                 String detail = data.has("detail") && !data.get("detail").isJsonNull()
                         ? data.get("detail").getAsString() : "";
-                runOnUiThread(() -> onToolEvent(status, name, id, detail));
+                boolean ok = !data.has("ok") || data.get("ok").getAsBoolean();
+                String result = data.has("result") && !data.get("result").isJsonNull()
+                        ? data.get("result").getAsString() : "";
+                runOnUiThread(() -> onToolEvent(status, name, id, detail, ok, result));
                 break;
             }
             case "session_thinking": {
@@ -531,7 +534,8 @@ public class TerminalActivity extends AppCompatActivity
      * bar mirrors the running tool. `id` correlates the name event with the
      * later detail event; `detail` is a short argument summary.
      */
-    private void onToolEvent(String status, String toolName, String id, String detail) {
+    private void onToolEvent(String status, String toolName, String id, String detail,
+                             boolean ok, String result) {
         if ("running".equals(status)) {
             markActivity();
             // A tool ends the current text segment — flush it so the next text
@@ -554,6 +558,10 @@ public class TerminalActivity extends AppCompatActivity
             statusPhase = PHASE_TOOL;
             currentToolLabel = name + (detail != null && !detail.isEmpty() ? " · " + detail : "");
             updateStatusBar();
+        } else if ("result".equals(status)) {
+            // Tool finished — annotate its line with the output snippet.
+            markActivity();
+            chatAdapter.updateToolResult(id, ok, result);
         } else if ("done".equals(status)) {
             markActivity();
             chatAdapter.markToolsDone();

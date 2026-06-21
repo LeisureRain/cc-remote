@@ -16,6 +16,8 @@ public class ChatMessage {
     public String toolId;   // claude tool_use id — used to fill in detail later (TYPE_TOOL)
     public String toolDetail; // tool argument summary e.g. "npm test" (TYPE_TOOL)
     public boolean toolDone; // true once the tool phase finished (TYPE_TOOL)
+    public String toolResult; // short output/result snippet (TYPE_TOOL)
+    public boolean toolError; // true if the tool result was an error (TYPE_TOOL)
 
     public ChatMessage(int type, String text) {
         this(type, text, System.currentTimeMillis());
