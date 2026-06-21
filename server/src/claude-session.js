@@ -91,6 +91,31 @@ function summarizeToolInput(name, input) {
   return s.length > 120 ? s.slice(0, 119) + '…' : s;
 }
 
+/**
+ * Build a short summary of a tool's RESULT (the output claude got back after
+ * running it) so the client can show success/error + an output snippet. The
+ * tool_result content may be a plain string or an array of content blocks.
+ */
+function summarizeToolResult(content) {
+  let text = '';
+  if (typeof content === 'string') {
+    text = content;
+  } else if (Array.isArray(content)) {
+    text = content.map((p) => {
+      if (typeof p === 'string') return p;
+      if (p && p.type === 'text') return p.text || '';
+      return '';
+    }).join('\n');
+  }
+  text = String(text == null ? '' : text).replace(/\r/g, '').trim();
+  if (!text) return '';
+  // Keep the first couple of non-empty lines, joined compactly.
+  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l !== '');
+  let snippet = lines.slice(0, 2).join(' ⏎ ');
+  if (lines.length > 2) snippet += ' …';
+  return snippet.length > 200 ? snippet.slice(0, 199) + '…' : snippet;
+}
+
 class ClaudeSession extends EventEmitter {
   constructor(id, directory, options = {}) {
     super();
@@ -410,6 +435,26 @@ class ClaudeSession extends EventEmitter {
             this._turnText += t;
             this._streaming = true;
             this._onTextDelta(t);
+          }
+        }
+        break;
+      }
+
+      case 'user': {
+        // Tool execution results come back as a user message carrying
+        // tool_result blocks. Surface a short success/error + output snippet
+        // per tool_use id so the client can annotate its tool trail.
+        const content = obj.message && obj.message.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block && block.type === 'tool_result') {
+              this._broadcast({
+                type: 'session_tool', session_id: this.id,
+                status: 'result', id: block.tool_use_id || '',
+                ok: !block.is_error,
+                result: summarizeToolResult(block.content),
+              });
+            }
           }
         }
         break;
