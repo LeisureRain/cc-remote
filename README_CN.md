@@ -44,7 +44,19 @@
 
 搞定。无论你用的是移动数据还是 Wi-Fi，手机和电脑都在同一个虚拟局域网里，就像在同一间屋子里。无需端口转发、无需动态 DNS、无需把服务暴露到公网。
 
-> **提示：** ZeroTier 免费支持最多 25 台设备。如果遇到严格的防火墙限制，可以试试 [Tailscale](https://tailscale.com/) —— 底层基于 WireGuard，与 CC Remote 配合同样完美。
+> **提示：** ZeroTier 免费支持最多 25 台设备。
+
+### 也可以用其他方式打通网络
+
+ZeroTier 只是最省事的一种 —— **只要能让手机和工作机处在同一个可互相访问的网络里，任何方式都行。** 用你手头现成的就好：
+
+- **同一 Wi-Fi / 局域网** —— 完全免配置，直接在应用里填工作机的局域网 IP（这就是默认方式）。
+- **Tailscale** —— 基于 WireGuard 的网状 VPN，体验同样接近零配置；遇到严格防火墙时尤其好用。
+- **自建 VPN** —— 如果你本来就跑着 WireGuard 或 OpenVPN。
+- **反向隧道** —— 用 [frp](https://github.com/fatedier/frp)、[Cloudflare Tunnel](https://www.cloudflare.com/products/tunnel/) 或 ngrok 把端口通过公网中继暴露出去。
+- **SSH 端口转发** —— 如果你能 SSH 到那台机器：`ssh -L 11199:localhost:11199 user@workstation`。
+
+> **⚠️ 安全提示：** 连接由自动生成的 **auth token** 把关，但如果你通过公网中继（反向隧道 / 端口转发）暴露端口，务必保持 token 开启，并优先选择自带加密/鉴权的方式（VPN、Cloudflare Tunnel）。不要把一个裸的、无鉴权的端口直接挂到公网上。
 
 ## 功能
 

@@ -44,7 +44,19 @@ The server listens on your local network by default. To access it from anywhere 
 
 Now you can vibe code from literally anywhere with mobile data or Wi-Fi — your phone and workstation are on the same virtual LAN, as if they were in the same room. No port forwarding, no dynamic DNS, no exposing services to the public internet.
 
-> **Pro tip:** ZeroTier is free for up to 25 devices. If you're behind a restrictive firewall, try [Tailscale](https://tailscale.com/) as an alternative — it uses WireGuard under the hood and works great with CC Remote too.
+> **Pro tip:** ZeroTier is free for up to 25 devices.
+
+### Other ways to connect
+
+ZeroTier is just the easiest option — **anything that puts your phone and workstation on the same reachable network works.** Pick whatever you already have:
+
+- **Same Wi-Fi / LAN** — no setup at all; just point the app at the workstation's local IP (this is the default).
+- **Tailscale** — a WireGuard-based mesh VPN with a similar zero-config experience; great if you're behind a restrictive firewall.
+- **Self-hosted VPN** — WireGuard or OpenVPN, if you already run one.
+- **Reverse tunnel** — [frp](https://github.com/fatedier/frp), [Cloudflare Tunnel](https://www.cloudflare.com/products/tunnel/), or ngrok to relay the port out through a public endpoint.
+- **SSH port forwarding** — `ssh -L 11199:localhost:11199 user@workstation` if you already have SSH access to the machine.
+
+> **⚠️ Security:** the connection is gated by the auto-generated **auth token**, but if you expose the port through a public relay (reverse tunnel / port forward), keep the token on and prefer a method that adds its own encryption/auth (VPN, Cloudflare Tunnel). Don't put a raw, unauthenticated port on the open internet.
 
 ## Features
 
