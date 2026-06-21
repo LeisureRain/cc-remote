@@ -44,11 +44,10 @@ if (!fs.existsSync(exe)) {
 }
 
 // 4) Emit the launcher (+ its .config) to dist/ with a versioned name.
-//    Only clean old Windows artifacts so Android APKs in dist/ are untouched.
+//    We deliberately do NOT delete other CCRemoteLauncher-v*.exe files: an
+//    older version may still be running and would lock the file (EPERM on
+//    Windows), failing the build. Only the same-version target is overwritten.
 fs.mkdirSync(distRoot, { recursive: true });
-for (const f of fs.readdirSync(distRoot)) {
-  if (f.startsWith('CCRemoteLauncher')) fs.rmSync(path.join(distRoot, f));
-}
 const outExe = path.join(distRoot, `CCRemoteLauncher-v${version}.exe`);
 fs.copyFileSync(exe, outExe);
 const cfg = exe + '.config';

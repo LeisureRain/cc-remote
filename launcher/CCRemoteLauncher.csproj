@@ -7,9 +7,9 @@
     <AssemblyName>CCRemoteLauncher</AssemblyName>
     <RootNamespace>CCRemoteLauncher</RootNamespace>
     <!-- Version fields are kept in sync by tools/sync-version.mjs (root VERSION file). -->
-    <Version>1.2.6</Version>
-    <AssemblyVersion>1.2.6.0</AssemblyVersion>
-    <FileVersion>1.2.6.0</FileVersion>
+    <Version>1.2.7</Version>
+    <AssemblyVersion>1.2.7.0</AssemblyVersion>
+    <FileVersion>1.2.7.0</FileVersion>
     <Product>CC Remote Launcher</Product>
     <Company>CC Remote</Company>
     <ApplicationManifest>app.manifest</ApplicationManifest>
