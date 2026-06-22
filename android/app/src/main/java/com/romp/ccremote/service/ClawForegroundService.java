@@ -49,6 +49,12 @@ public class ClawForegroundService extends Service {
 
     private final CopyOnWriteArrayList<ChatCallback> callbacks = new CopyOnWriteArrayList<>();
 
+    // Per-session unread-reply count, used as the launcher badge number.
+    // Incremented on each background reply notification, cleared when the
+    // session's notification is cancelled (user opened the terminal).
+    private static final java.util.concurrent.ConcurrentHashMap<String, Integer> unreadCounts =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     public interface ChatCallback {
         void onSessionKilled(String sessionId);
         void onSessionExited(String sessionId, int exitCode);
@@ -265,12 +271,20 @@ public class ClawForegroundService extends Service {
         PendingIntent pi = makeTerminalIntent();
         String body = text.length() > 150 ? text.substring(0, 147) + "…" : text;
 
+        // Track unread replies for this session so the launcher icon can show
+        // a numeric badge (on launchers that support numbers — stock Pixel
+        // shows only a dot regardless of setNumber).
+        String key = sessionId == null ? "" : sessionId;
+        int count = unreadCounts.merge(key, 1, Integer::sum);
+
         Notification notif = new NotificationCompat.Builder(this, REPLY_CHANNEL)
                 .setContentTitle("Claude replied")
                 .setContentText(body)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentIntent(pi)
                 .setAutoCancel(true)
+                .setNumber(count)
+                .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .build();
 
@@ -280,6 +294,7 @@ public class ClawForegroundService extends Service {
 
     /** Cancel the reply notification for the current session (message already seen). */
     public void cancelReplyNotification() {
+        unreadCounts.remove(sessionId == null ? "" : sessionId);
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (nm != null) nm.cancel(getReplyNotifyId());
     }
@@ -292,6 +307,8 @@ public class ClawForegroundService extends Service {
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentIntent(makeTerminalIntent())
                 .setAutoCancel(true)
+                .setNumber(1)
+                .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .build();
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
