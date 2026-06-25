@@ -4,9 +4,7 @@ server/profiles/
 server/sessions/
 
 # Articles / Publishing
-公众号文章.md
-公众号封面.svg
-公众号封面.png
+articles/
 
 # Node
 server/node_modules/
