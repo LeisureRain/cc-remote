@@ -1,4 +1,4 @@
-# 我 vibe coding 了一个 vibe coding 神器
+# 我 vibe coding 了一个 vibe coding 神器（完整版发布）
 
 > 缘起：某天晚上躺在沙发上想写代码，但不想爬起来开电脑。
 > 于是我用 Claude Code 写了一个能让我躺着用 Claude Code 的工具。

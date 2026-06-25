@@ -225,7 +225,7 @@ All messages are JSON with a `type` field. See [CLAUDE.md](CLAUDE.md) for the fu
 
 ## License
 
-MIT for personal, non-commercial use only.
+Personal use free, commercial use requires authorization.
 
 **Personal use** — free to use, modify, and share for your own projects, learning, or hobby development.
 **Commercial use** — not permitted without prior written authorization from the author.
