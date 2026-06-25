@@ -225,7 +225,10 @@ All messages are JSON with a `type` field. See [CLAUDE.md](CLAUDE.md) for the fu
 
 ## License
 
-Personal use free, commercial use requires authorization.
+Copyright (c) 2025 romp. All rights reserved.
 
-**Personal use** — free to use, modify, and share for your own projects, learning, or hobby development.
-**Commercial use** — not permitted without prior written authorization from the author.
+**Personal and internal business use** — free to use, copy, and modify
+for personal projects or within your organization.
+
+**Redistribution or commercial resale** — not permitted without prior
+written authorization from the author.
