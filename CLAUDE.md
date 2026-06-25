@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **CC Remote** — remote Claude Code via Android. A two-component system: a Node.js WebSocket server that manages headless `claude` processes, and an Android client that connects to it over the local network. Each session is one long-lived `claude` process running in stream-json mode; the Android app lists active sessions and provides a chat UI to interact with them.
 
+Project home: <https://github.com/LeisureRain/cc-remote>
+
 ## Architecture
 
 ```

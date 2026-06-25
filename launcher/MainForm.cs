@@ -561,7 +561,6 @@ namespace CCRemoteLauncher
                 "Author:  romp",
                 "Email:   srpol@outlook.com",
                 "",
-                "Gitee:  https://gitee.com/romp/cc-remote",
                 "GitHub: https://github.com/LeisureRain/cc-remote");
             MessageBox.Show(this, text, "About CC Remote", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
