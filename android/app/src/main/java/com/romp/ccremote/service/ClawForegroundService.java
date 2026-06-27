@@ -253,12 +253,16 @@ public class ClawForegroundService extends Service {
     // Notifications
     // ============================================================
 
-    /** Minimal foreground notification — silent, barely visible. */
+    /** Minimal foreground notification — silent, barely visible. Click opens the session. */
     private Notification buildFgNotification() {
+        String dir = sessionDir != null
+                ? sessionDir.substring(sessionDir.lastIndexOf('/') + 1)
+                : "";
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("")
-                .setContentText("")
+                .setContentTitle("CC Remote")
+                .setContentText(dir.isEmpty() ? "Connected" : dir)
                 .setSmallIcon(android.R.drawable.ic_menu_info_details)
+                .setContentIntent(makeTerminalIntent())
                 .setOngoing(true)
                 .setSilent(true)
                 .setPriority(NotificationCompat.PRIORITY_MIN)

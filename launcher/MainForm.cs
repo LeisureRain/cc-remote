@@ -45,6 +45,9 @@ namespace CCRemoteLauncher
         private int _uiClientCount;        // last rendered total client count
         private bool _uiPollOk;            // whether the last /health poll succeeded
 
+        private NotifyIcon _trayIcon;
+        private ContextMenuStrip _trayMenu;
+
         public MainForm()
         {
             string version = Assembly.GetExecutingAssembly().GetName().Version is Version v
@@ -159,6 +162,9 @@ namespace CCRemoteLauncher
 
             Load += (s, e) => Initialize();
             FormClosing += OnFormClosing;
+            Resize += OnFormResize;
+
+            SetupTrayIcon();
         }
 
         private Button MakeButton(string text, EventHandler onClick)
@@ -343,6 +349,45 @@ namespace CCRemoteLauncher
                 _status.Text = "○ Stopped";
                 _status.ForeColor = Color.FromArgb(248, 81, 73);
             }
+        }
+
+        // ==========================================================
+        // System tray (minimize-to-tray)
+        // ==========================================================
+
+        private void SetupTrayIcon()
+        {
+            _trayMenu = new ContextMenuStrip();
+            _trayMenu.Items.Add("&Restore", null, (s, e) => RestoreFromTray());
+            _trayMenu.Items.Add(new ToolStripSeparator());
+            _trayMenu.Items.Add("E&xit", null, (s, e) => Close());
+
+            _trayIcon = new NotifyIcon
+            {
+                Icon = Icon,   // reuse the form's icon loaded in TryLoadIcon
+                Text = "CC Remote Launcher",
+                ContextMenuStrip = _trayMenu,
+                Visible = false,
+            };
+            _trayIcon.DoubleClick += (s, e) => RestoreFromTray();
+        }
+
+        private void OnFormResize(object sender, EventArgs e)
+        {
+            if (WindowState == FormWindowState.Minimized)
+            {
+                Hide();
+                _trayIcon.Visible = true;
+            }
+        }
+
+        private void RestoreFromTray()
+        {
+            _trayIcon.Visible = false;
+            Show();
+            WindowState = FormWindowState.Normal;
+            BringToFront();
+            Activate();
         }
 
         // ==========================================================
@@ -627,6 +672,8 @@ namespace CCRemoteLauncher
         {
             _closing = true;
             _pollTimer.Stop();
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
             if (IsRunning)
             {
                 try { _proc.Exited -= OnProcExited; } catch { }
