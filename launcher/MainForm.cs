@@ -47,6 +47,7 @@ namespace CCRemoteLauncher
 
         private NotifyIcon _trayIcon;
         private ContextMenuStrip _trayMenu;
+        private bool _exitingConfirmed;
 
         public MainForm()
         {
@@ -358,9 +359,9 @@ namespace CCRemoteLauncher
         private void SetupTrayIcon()
         {
             _trayMenu = new ContextMenuStrip();
-            _trayMenu.Items.Add("&Restore", null, (s, e) => RestoreFromTray());
+            _trayMenu.Items.Add("Show Main &Window", null, (s, e) => RestoreFromTray());
             _trayMenu.Items.Add(new ToolStripSeparator());
-            _trayMenu.Items.Add("E&xit", null, (s, e) => Close());
+            _trayMenu.Items.Add("E&xit", null, (s, e) => ConfirmAndClose());
 
             _trayIcon = new NotifyIcon
             {
@@ -388,6 +389,23 @@ namespace CCRemoteLauncher
             WindowState = FormWindowState.Normal;
             BringToFront();
             Activate();
+        }
+
+        /// <summary>Ask for confirmation before fully exiting the app.</summary>
+        private void ConfirmAndClose()
+        {
+            var result = MessageBox.Show(
+                "Are you sure you want to exit? The server and all sessions will be stopped.",
+                "CC Remote Launcher",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2);
+            if (result == DialogResult.Yes)
+            {
+                _exitingConfirmed = true;
+                Close();
+            }
+            // No — do nothing; stay running in the background.
         }
 
         // ==========================================================
@@ -670,6 +688,24 @@ namespace CCRemoteLauncher
 
         private void OnFormClosing(object sender, FormClosingEventArgs e)
         {
+            // Ask for confirmation unless we already went through ConfirmAndClose
+            // or the process is shutting down (e.g. logoff / OS shutdown).
+            if (!_exitingConfirmed && e.CloseReason == CloseReason.UserClosing)
+            {
+                var result = MessageBox.Show(
+                    "Are you sure you want to exit? The server and all sessions will be stopped.",
+                    "CC Remote Launcher",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question,
+                    MessageBoxDefaultButton.Button2);
+                if (result != DialogResult.Yes)
+                {
+                    e.Cancel = true;
+                    return;
+                }
+                _exitingConfirmed = true;
+            }
+
             _closing = true;
             _pollTimer.Stop();
             _trayIcon.Visible = false;
