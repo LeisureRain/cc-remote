@@ -198,9 +198,9 @@ class OpenCodeSession extends EventEmitter {
       this._setOpenCodeSessionId(obj.sessionID);
     }
 
-    // Auto-approve: if the agent asks for approval, write y\n to stdin
-    // automatically so the session does not hang. The broadcast is for
-    // client-side visibility only; no dialog interaction is required.
+    // Approval request: broadcast to client, do NOT auto-approve.
+    // The client shows a non-blocking tappable indicator; the user can
+    // respond at their convenience via respondToApproval.
     if (/(approval|permission|confirm)/.test(String(obj.type || obj.event || '').toLowerCase()) &&
         !/(response|result|completed|denied|approved)/.test(String(obj.type || '').toLowerCase())) {
       const part = obj.part || obj;
@@ -216,7 +216,6 @@ class OpenCodeSession extends EventEmitter {
         command: typeof command === 'string' ? command : JSON.stringify(command),
         reason: typeof reason === 'string' ? reason : JSON.stringify(reason),
       });
-      try { if (this.child && this.child.stdin && this.child.stdin.writable) this.child.stdin.write('y\n'); } catch (_) {}
       return;
     }
 
