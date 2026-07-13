@@ -1,7 +1,7 @@
 /**
- * Session Manager - Manages all Claude Code process sessions
+ * Session Manager - Manages all agent process sessions
  *
- * Each session wraps a Claude Code process (via node-pty) and tracks:
+ * Each session wraps one local coding agent backend and tracks:
  * - Connected WebSocket clients
  * - Output buffer (for reconnection catch-up)
  * - Session lifecycle
@@ -10,11 +10,18 @@
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
-const { ClaudeSession } = require('./claude-session');
+const {
+  DEFAULT_AGENT,
+  normalizeAgent,
+  createAgentSession,
+  restoreAgentSession,
+  getSessionModel,
+  switchSessionModel,
+} = require('./agent-registry');
 
 class SessionManager {
   constructor(options = {}) {
-    /** @type {Map<string, ClaudeSession>} */
+    /** @type {Map<string, any>} */
     this.sessions = new Map();
 
     this.persistSessions = options.persistSessions !== false; // default true
@@ -29,14 +36,15 @@ class SessionManager {
   }
 
   /**
-   * Create a new Claude Code session
-   * @param {string} directory - Working directory for Claude Code
-   * @param {object} [options] - { permissionMode }
-   * @returns {ClaudeSession}
+   * Create a new coding-agent session.
+   * @param {string} directory - Working directory for the agent
+   * @param {object} [options] - { agent, permissionMode }
+   * @returns {any}
    */
   createSession(directory, options = {}) {
     const id = uuidv4();
-    const session = new ClaudeSession(id, directory, options);
+    const agent = normalizeAgent(options.agent || DEFAULT_AGENT);
+    const session = createAgentSession(id, directory, Object.assign({}, options, { agent }));
 
     session.on('exit', (code) => {
       console.log(`[SessionManager] Session ${id} exited with code ${code}`);
@@ -60,17 +68,43 @@ class SessionManager {
     });
 
     this.sessions.set(id, session);
-    console.log(`[SessionManager] Created session ${id} in ${directory}`);
+    console.log(`[SessionManager] Created ${agent} session ${id} in ${directory}`);
     return session;
   }
 
   /**
    * Get a session by ID
    * @param {string} id
-   * @returns {ClaudeSession|undefined}
+   * @returns {any|undefined}
    */
   getSession(id) {
     return this.sessions.get(id);
+  }
+
+  getSessionModel(sessionOrId) {
+    const session = typeof sessionOrId === 'string' ? this.sessions.get(sessionOrId) : sessionOrId;
+    return getSessionModel(session);
+  }
+
+  switchSessionModel(id, model) {
+    const session = this.sessions.get(id);
+    if (!session) return null;
+    const nextModel = switchSessionModel(session, model);
+    this.saveSession(session);
+    const result = {
+      session,
+      agent: session.agent || DEFAULT_AGENT,
+      model: nextModel,
+    };
+    if (typeof session._broadcast === 'function') {
+      session._broadcast({
+        type: 'session_model_switched',
+        session_id: id,
+        agent: result.agent,
+        model: result.model,
+      });
+    }
+    return result;
   }
 
   /**
@@ -90,7 +124,7 @@ class SessionManager {
   }
 
   /**
-   * Resume a stopped session: relaunch its claude process (--resume) and persist
+   * Resume a stopped session: relaunch its agent process and persist
    * the now-running state.
    * @param {string} id
    * @returns {boolean}
@@ -129,6 +163,8 @@ class SessionManager {
     for (const [id, session] of this.sessions) {
       list.push({
         id,
+        agent: session.agent || DEFAULT_AGENT,
+        model: this.getSessionModel(session),
         directory: session.directory,
         createdAt: session.createdAt.toISOString(),
         status: session.isRunning ? 'running' : (session._stopped ? 'stopped' : 'exited'),
@@ -143,11 +179,11 @@ class SessionManager {
   }
 
   /**
-   * Restart every running session's claude process so they pick up the
+   * Restart every running session's agent process so they pick up the
    * current profile (CC Remote's active-settings.json overlay + model).
    * Server-driven: called after a profile switch instead of relying on any
    * one client to ask for a restart. Idle sessions restart silently; a
-   * mid-turn session is interrupted first (see ClaudeSession.restart).
+   * mid-turn session is interrupted first.
    * @returns {number} count of sessions asked to restart
    */
   restartAll() {
@@ -195,7 +231,7 @@ class SessionManager {
 
   /**
    * Save a single session's state to disk.
-   * @param {ClaudeSession} session
+   * @param {any} session
    */
   saveSession(session) {
     if (!this.persistSessions) return;
@@ -277,7 +313,7 @@ class SessionManager {
 
       // Restore session
       try {
-        const session = ClaudeSession.fromSaved(data);
+        const session = restoreAgentSession(data);
 
         // Wire up events (same as createSession)
         session.on('exit', (code) => {

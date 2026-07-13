@@ -19,34 +19,56 @@
         android:theme="@style/ToolbarTheme"
         app:popupTheme="@style/WhitePopupMenu">
 
-        <!-- Custom content: title + status. Width is wrap_content (not
-             match_parent) so the toolbar reserves room for the overflow menu
-             button on the right. -->
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:paddingEnd="48dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/toolbar_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_primary"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    tools:text="my-project" />
+
+                <TextView
+                    android:id="@+id/toolbar_status"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/text_green"
+                    android:textSize="11sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    tools:text="running" />
+            </LinearLayout>
 
             <TextView
-                android:id="@+id/toolbar_title"
+                android:id="@+id/toolbar_model"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="@color/text_primary"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:maxLines="1"
-                android:ellipsize="end"
-                tools:text="my-project" />
-
-            <TextView
-                android:id="@+id/toolbar_status"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
                 android:textColor="@color/text_green"
                 android:textSize="11sp"
-                tools:text="● connected" />
+                android:gravity="center_vertical"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:paddingHorizontal="8dp"
+                android:paddingVertical="6dp"
+                android:maxLines="1"
+                android:ellipsize="end"
+                tools:text="[Claude / default]" />
 
         </LinearLayout>
     </com.google.android.material.appbar.MaterialToolbar>
@@ -60,9 +82,7 @@
         android:paddingVertical="4dp"
         android:clipToPadding="false" />
 
-    <!-- Live activity status bar — shows what Claude is doing right now
-         (thinking / running a tool / writing) + elapsed time. Hidden when
-         no turn is in flight. Tapping it interrupts the current turn. -->
+    <!-- Live activity status bar: shows current activity and elapsed time. -->
     <LinearLayout
         android:id="@+id/status_bar"
         android:layout_width="match_parent"
@@ -95,7 +115,7 @@
             android:fontFamily="monospace"
             android:maxLines="1"
             android:ellipsize="end"
-            tools:text="✳ Thinking… 12s" />
+            tools:text="Thinking... 12s" />
     </LinearLayout>
 
     <!-- Input bar -->

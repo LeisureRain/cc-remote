@@ -17,6 +17,7 @@ const url = require('url');
 const { exec } = require('child_process');
 const { SessionManager } = require('./session-manager');
 const { ACTIVE_SETTINGS_FILE } = require('./claude-session');
+const { DEFAULT_AGENT, normalizeAgent, getAgentDefinition, listAgentModels } = require('./agent-registry');
 const ccSwitch = require('./cc-switch');
 
 // ============================================================
@@ -304,18 +305,24 @@ const sessionManager = new SessionManager({
   sessionsDir: path.resolve(CONFIG.sessionsDir),
 });
 
-// Cached probe for the `claude` CLI. null = unknown; cached true once found
+// Cached probe per agent CLI. null/undefined = unknown; cached true once found
 // so we don't pay the probe cost on every session create. A negative result
-// is NOT cached, so installing claude after startup is picked up on retry.
-let claudeAvailable = null;
-function checkClaudeAvailable() {
+// is NOT cached, so installing a CLI after startup is picked up on retry.
+const agentAvailability = new Map();
+function checkAgentAvailable(agent) {
   return new Promise((resolve) => {
-    if (claudeAvailable === true) return resolve(true);
-    exec('claude --version', { timeout: 8000 }, (err) => {
-      if (!err) claudeAvailable = true;
+    const def = getAgentDefinition(agent);
+    if (!def) return resolve(false);
+    if (agentAvailability.get(def.id) === true) return resolve(true);
+    exec(def.checkCommand, { timeout: 8000 }, (err) => {
+      if (!err) agentAvailability.set(def.id, true);
       resolve(!err);
     });
   });
+}
+
+function getSessionStatus(session) {
+  return session.isRunning ? 'running' : (session._stopped ? 'stopped' : 'exited');
 }
 
 setInterval(() => { sessionManager.cleanup(); }, 60000);
@@ -488,6 +495,13 @@ wss.on('connection', (ws, req) => {
       }
       case 'create_session': {
         const directory = message.directory;
+        const agent = normalizeAgent(message.agent || DEFAULT_AGENT);
+        const model = typeof message.model === 'string' ? message.model.trim() : '';
+        const agentDef = getAgentDefinition(agent);
+        if (!agentDef) {
+          sendToClient(ws, { type: 'error', message: `Unsupported agent: ${agent}` });
+          return;
+        }
         if (!directory || typeof directory !== 'string') {
           sendToClient(ws, { type: 'error', message: 'directory is required' });
           return;
@@ -502,22 +516,22 @@ wss.on('connection', (ws, req) => {
           sendToClient(ws, { type: 'error', message: `Max sessions (${CONFIG.maxSessions}) reached` });
           return;
         }
-        // Verify the claude CLI is actually available before spawning a shell —
-        // the shell will start fine even when `claude` is missing, so checking
-        // the PTY alone never catches a missing CLI.
-        if (!(await checkClaudeAvailable())) {
-          sendToClient(ws, { type: 'error', message: 'The "claude" CLI was not found in PATH on the server. Install Claude Code and ensure `claude` is runnable.' });
+        // Verify the agent CLI is actually available before spawning a shell;
+        // the shell can start even when the CLI itself is missing.
+        if (!(await checkAgentAvailable(agent))) {
+          sendToClient(ws, { type: 'error', message: agentDef.missingMessage });
           return;
         }
         try {
-          const session = sessionManager.createSession(directory, { permissionMode: CONFIG.permissionMode });
+          const session = sessionManager.createSession(directory, { agent, model, permissionMode: CONFIG.permissionMode });
           await new Promise(r => setTimeout(r, 1000));
           if (!session.isRunning) {
-            sendToClient(ws, { type: 'session_error', session_id: session.id,
-              error: 'Failed to start Claude Code. Make sure "claude" CLI is installed and in PATH.' });
+            sendToClient(ws, { type: 'session_error', session_id: session.id, agent: session.agent,
+              error: agentDef.startError });
             return;
           }
-          sendToClient(ws, { type: 'session_created', session_id: session.id,
+          sendToClient(ws, { type: 'session_created', session_id: session.id, agent: session.agent,
+            model: sessionManager.getSessionModel(session),
             directory: session.directory, createdAt: session.createdAt.toISOString() });
         } catch (error) {
           sendToClient(ws, { type: 'error', message: `Failed to create session: ${error.message}` });
@@ -537,7 +551,9 @@ wss.on('connection', (ws, req) => {
         session.addClient(ws);
         console.log(`[Server] ${clientAddr} watching session ${sessionId} (${session.getClientCount()} client(s) on it)`);
         sendToClient(ws, { type: 'session_connected', session_id: sessionId,
-          directory: session.directory, status: session.isRunning ? 'running' : 'exited',
+          agent: session.agent || DEFAULT_AGENT,
+          model: sessionManager.getSessionModel(session),
+          directory: session.directory, status: getSessionStatus(session),
           exitCode: session.exitCode });
         break;
       }
@@ -629,6 +645,40 @@ wss.on('connection', (ws, req) => {
       }
 
       // — Profile management —
+
+      case 'list_agent_models': {
+        const agent = normalizeAgent(message.agent || DEFAULT_AGENT);
+        const result = await listAgentModels(agent);
+        if (!result) {
+          sendToClient(ws, { type: 'error', message: `Unsupported agent: ${agent}` });
+          return;
+        }
+        sendToClient(ws, Object.assign({ type: 'agent_model_list' }, result));
+        break;
+      }
+
+      case 'switch_session_model': {
+        const sid = message.session_id || currentSessionId;
+        if (!sid) { sendToClient(ws, { type: 'error', message: 'session_id is required' }); return; }
+        const model = typeof message.model === 'string' ? message.model.trim() : '';
+        let result;
+        try {
+          result = sessionManager.switchSessionModel(sid, model);
+        } catch (err) {
+          sendToClient(ws, { type: 'error', message: err.message });
+          return;
+        }
+        if (!result) { sendToClient(ws, { type: 'error', message: `Session ${sid} not found` }); return; }
+        if (!result.session.clients || !result.session.clients.has(ws)) {
+          sendToClient(ws, {
+            type: 'session_model_switched',
+            session_id: sid,
+            agent: result.agent,
+            model: result.model,
+          });
+        }
+        break;
+      }
 
       case 'list_profiles': {
         const idx = readProfileIndex();

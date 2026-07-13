@@ -78,7 +78,8 @@ public class SessionAdapter extends RecyclerView.Adapter<SessionAdapter.ViewHold
         void bind(SessionInfo session) {
             titleView.setText(session.getDisplayTitle());
             statusView.setText(session.getDisplayStatus());
-            clientsView.setText(session.clientCount + " client" + (session.clientCount != 1 ? "s" : ""));
+            clientsView.setText(session.getAgentLabel() + " / " + session.getModelLabel()
+                    + " - " + session.clientCount + " client" + (session.clientCount != 1 ? "s" : ""));
             dirView.setText(session.directory);
 
             if (session.isRunning()) {

@@ -5,8 +5,12 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
+import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.ImageButton;
+import android.widget.LinearLayout;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -16,12 +20,16 @@ import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.romp.ccremote.R;
 import com.romp.ccremote.model.ChatMessage;
 import com.romp.ccremote.service.ClawForegroundService;
 import com.romp.ccremote.util.ChatHistoryStore;
 import com.romp.ccremote.websocket.WebSocketManager;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class TerminalActivity extends AppCompatActivity
         implements ClawForegroundService.ChatCallback {
@@ -30,16 +38,24 @@ public class TerminalActivity extends AppCompatActivity
     private ImageButton btnSend;
     private TextView toolbarTitle;
     private TextView toolbarStatus;
+    private TextView toolbarModel;
     private RecyclerView chatList;
     private ChatAdapter chatAdapter;
     private LinearLayoutManager layoutManager;
     private String sessionId;
     private String sessionDirectory;
+    private String sessionAgent = "claude";
+    private String sessionModel = "";
     private volatile boolean isSessionRunning = true;
     private boolean autoScroll = true;
+    private AlertDialog modelDialog;
+    private Spinner modelSpinner;
+    private EditText modelInput;
+    private TextView modelHintText;
+    private final List<String> modelOptions = new ArrayList<>();
 
     // Turn / streaming state
-    private boolean turnActive = false;           // a turn is in flight (send → response)
+    private boolean turnActive = false;           // a turn is in flight (send 鈫?response)
     private boolean streamingIntoBubble = false;  // currently appending text to a Claude bubble
     private final StringBuilder streamBuf = new StringBuilder();       // current text segment
     private final StringBuilder turnAnswerText = new StringBuilder();  // whole turn's answer text
@@ -60,7 +76,7 @@ public class TerminalActivity extends AppCompatActivity
             new android.os.Handler(android.os.Looper.getMainLooper());
 
     private static final int PHASE_WORKING = 0, PHASE_THINKING = 1, PHASE_TOOL = 2, PHASE_WRITING = 3;
-    private static final long STUCK_MS = 30000;   // no activity for this long → "may be stuck"
+    private static final long STUCK_MS = 30000;   // no activity for this long 鈫?"may be stuck"
     private static final int COLOR_GREEN = 0xFF51CF66, COLOR_AMBER = 0xFFFFD43B;
 
     // Track the last user message for local persistence pairing
@@ -84,6 +100,10 @@ public class TerminalActivity extends AppCompatActivity
 
         sessionId = getIntent().getStringExtra("session_id");
         sessionDirectory = getIntent().getStringExtra("session_directory");
+        String a = getIntent().getStringExtra("session_agent");
+        String initialModel = getIntent().getStringExtra("session_model");
+        if (a != null && !a.isEmpty()) sessionAgent = a;
+        if (initialModel != null) sessionModel = initialModel;
         String stat = getIntent().getStringExtra("session_status");
         if (stat != null) isSessionRunning = "running".equals(stat);
         if (sessionId == null) { finish(); return; }
@@ -101,6 +121,7 @@ public class TerminalActivity extends AppCompatActivity
         Toolbar toolbar = findViewById(R.id.toolbar);
         toolbarTitle = findViewById(R.id.toolbar_title);
         toolbarStatus = findViewById(R.id.toolbar_status);
+        toolbarModel = findViewById(R.id.toolbar_model);
         chatList = findViewById(R.id.chat_list);
         inputText = findViewById(R.id.input_text);
         btnSend = findViewById(R.id.btn_send);
@@ -115,7 +136,7 @@ public class TerminalActivity extends AppCompatActivity
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
             getSupportActionBar().setDisplayShowTitleEnabled(false);
         }
-        toolbarTitle.setText(getDisplayDir(sessionDirectory));
+        toolbarModel.setOnClickListener(v -> showSwitchModelDialog());
         updateToolbarStatus();
 
         // Restore unsent draft for this session
@@ -156,7 +177,7 @@ public class TerminalActivity extends AppCompatActivity
             scrollToBottom();
         }
 
-        // Input — Enter inserts a newline (multi-line field); sending is done
+        // Input 鈥?Enter inserts a newline (multi-line field); sending is done
         // explicitly via the send button so multi-line messages aren't cut off.
         btnSend.setOnClickListener(v -> {
             if (turnActive) confirmInterrupt();
@@ -185,7 +206,7 @@ public class TerminalActivity extends AppCompatActivity
         ClawForegroundService svc = ClawForegroundService.getInstance();
         if (svc != null) svc.addCallback(this);
 
-        // Cancel any stale reply notification — user is now watching the chat
+        // Cancel any stale reply notification 鈥?user is now watching the chat
         NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (nm != null && sessionId != null) {
             nm.cancel(ClawForegroundService.replyNotifyId(sessionId));
@@ -197,9 +218,9 @@ public class TerminalActivity extends AppCompatActivity
     @Override
     protected void onPause() {
         super.onPause();
-        // No longer the visible session — responses now warrant a notification.
+        // No longer the visible session 鈥?responses now warrant a notification.
         ClawForegroundService.clearVisibleSession(sessionId);
-        // Don't remove WebSocket listeners — service keeps them alive.
+        // Don't remove WebSocket listeners 鈥?service keeps them alive.
         // But unregister from service callback so duplicate UI updates
         // don't happen on re-entry.
         ClawForegroundService svc = ClawForegroundService.getInstance();
@@ -214,7 +235,7 @@ public class TerminalActivity extends AppCompatActivity
             WebSocketManager wm = WebSocketManager.getInstance();
             wm.removeMessageListener(messageListener);
             wm.removeConnectionListener(connectionListener);
-            // Don't stop service — keep connection alive
+            // Don't stop service 鈥?keep connection alive
         }
     }
 
@@ -225,7 +246,11 @@ public class TerminalActivity extends AppCompatActivity
         if (sid != null && !sid.equals(sessionId)) {
             sessionId = sid;
             sessionDirectory = intent.getStringExtra("session_directory");
-            toolbarTitle.setText(getDisplayDir(sessionDirectory));
+            String a = intent.getStringExtra("session_agent");
+            String nextModel = intent.getStringExtra("session_model");
+            if (a != null && !a.isEmpty()) sessionAgent = a;
+            sessionModel = nextModel != null ? nextModel : "";
+            updateToolbarStatus();
             endTurnUi(); // drop any live status bar from the previous session
             lastSentUser = null;
             chatAdapter.clear();
@@ -250,7 +275,7 @@ public class TerminalActivity extends AppCompatActivity
         runOnUiThread(() -> {
             endTurnUi();
             updateToolbarStatus();
-            chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "— Session killed —"));
+            chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "Session killed"));
         });
     }
 
@@ -262,7 +287,7 @@ public class TerminalActivity extends AppCompatActivity
             endTurnUi();
             updateToolbarStatus();
             chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE,
-                    "— Claude exited (code: " + exitCode + ") —"));
+                    "Claude exited (code: " + exitCode + ")"));
         });
     }
 
@@ -275,7 +300,7 @@ public class TerminalActivity extends AppCompatActivity
     }
 
     @Override public boolean onPrepareOptionsMenu(Menu menu) {
-        // Stop is for a running session; Resume is for a stopped one — show
+        // Stop is for a running session; Resume is for a stopped one 鈥?show
         // whichever applies so the action matches the session's current state.
         MenuItem stop = menu.findItem(R.id.action_stop);
         MenuItem resume = menu.findItem(R.id.action_resume);
@@ -301,7 +326,7 @@ public class TerminalActivity extends AppCompatActivity
         finish();
     }
 
-    /** Stop (pause) the session — keeps it resumable; stays on this screen. */
+    /** Stop (pause) the session 鈥?keeps it resumable; stays on this screen. */
     private void confirmStop() {
         new AlertDialog.Builder(this)
                 .setTitle("Stop Session")
@@ -309,22 +334,148 @@ public class TerminalActivity extends AppCompatActivity
                         + "but the session and its history are kept so you can resume it later.")
                 .setPositiveButton("Stop", (d, w) -> {
                     WebSocketManager.getInstance().sendStop(sessionId);
-                    Toast.makeText(this, "Stopping session…", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Stopping session...", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null).create().show();
     }
 
-    /** Resume a stopped session — relaunches its process on the server. */
+    /** Resume a stopped session 鈥?relaunches its process on the server. */
     private void doResume() {
         WebSocketManager.getInstance().sendResume(sessionId);
-        Toast.makeText(this, "Resuming session…", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Resuming session...", Toast.LENGTH_SHORT).show();
+    }
+
+    private void showSwitchModelDialog() {
+        final int padH = (int) (12 * getResources().getDisplayMetrics().density);
+        final int padV = (int) (8 * getResources().getDisplayMetrics().density);
+
+        modelOptions.clear();
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(padH, padV, padH, padV);
+        root.setBackgroundColor(0xFF161B22);
+
+        TextView current = new TextView(this);
+        current.setText(getAgentLabel(sessionAgent) + " session model. Empty means default.");
+        current.setTextColor(0xFFBBBBBB);
+        current.setTextSize(13);
+        current.setPadding(0, 0, 0, padV);
+        root.addView(current);
+
+        modelSpinner = new Spinner(this);
+        modelSpinner.setEnabled(false);
+        modelSpinner.setPadding(0, padV / 2, 0, padV / 2);
+        ArrayAdapter<String> loadingAdapter = new ArrayAdapter<>(
+                this, R.layout.item_model_spinner,
+                java.util.Collections.singletonList("Loading..."));
+        loadingAdapter.setDropDownViewResource(R.layout.item_model_spinner_dropdown);
+        modelSpinner.setAdapter(loadingAdapter);
+        root.addView(modelSpinner);
+
+        modelInput = new EditText(this);
+        modelInput.setSingleLine(true);
+        modelInput.setText(sessionModel != null ? sessionModel : "");
+        modelInput.setSelection(modelInput.getText().length());
+        modelInput.setHint("default");
+        modelInput.setTextColor(0xFFE0E0E0);
+        modelInput.setHintTextColor(0xFF888888);
+        modelInput.setBackgroundResource(R.drawable.input_bg);
+        modelInput.setPadding(padH + 4, padV + 2, padH + 4, padV + 2);
+        modelInput.setVisibility(View.GONE);
+        root.addView(modelInput);
+
+        modelHintText = new TextView(this);
+        modelHintText.setText("Loading models...");
+        modelHintText.setTextColor(0xFF8B949E);
+        modelHintText.setTextSize(12);
+        modelHintText.setPadding(0, padV, 0, 0);
+        root.addView(modelHintText);
+
+        TextView titleView = new TextView(this);
+        titleView.setText("Switch Model");
+        titleView.setTextColor(0xFFFFFFFF);
+        titleView.setTextSize(18);
+        titleView.setPadding(padH * 2, padV * 2, padH * 2, padV);
+        titleView.setTypeface(null, android.graphics.Typeface.BOLD);
+
+        modelDialog = new AlertDialog.Builder(this)
+                .setCustomTitle(titleView)
+                .setView(root)
+                .setPositiveButton("Switch", (d, w) -> {
+                    String model = getSelectedDialogModel();
+                    WebSocketManager.getInstance().sendSwitchSessionModel(sessionId, model);
+                    sessionModel = model;
+                    updateToolbarStatus();
+                    Toast.makeText(this, "Switching model...", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .create();
+        modelDialog.setOnDismissListener(d -> {
+            modelDialog = null;
+            modelSpinner = null;
+            modelInput = null;
+            modelHintText = null;
+        });
+        modelDialog.show();
+        if (modelDialog.getWindow() != null) {
+            modelDialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_bg);
+        }
+        modelDialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(0xFF51CF66);
+        modelDialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(0xFF888888);
+        WebSocketManager.getInstance().sendListAgentModels(sessionAgent);
+    }
+
+    private void renderModelOptions(boolean supportsManual) {
+        if (modelSpinner == null) return;
+
+        List<String> display = new ArrayList<>();
+        display.add("default");
+        display.addAll(modelOptions);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                this, R.layout.item_model_spinner, display);
+        adapter.setDropDownViewResource(R.layout.item_model_spinner_dropdown);
+        modelSpinner.setAdapter(adapter);
+
+        int selected = 0;
+        String current = sessionModel != null ? sessionModel : "";
+        for (int i = 1; i < display.size(); i++) {
+            if (display.get(i).equals(current)) {
+                selected = i;
+                break;
+            }
+        }
+        modelSpinner.setSelection(selected);
+
+        if (modelOptions.isEmpty()) {
+            modelSpinner.setEnabled(false);
+            if (modelInput != null) modelInput.setVisibility(supportsManual ? View.VISIBLE : View.GONE);
+            if (modelHintText != null) {
+                modelHintText.setText(supportsManual
+                        ? "No model list returned by the server. Enter a model name manually."
+                        : "No model list returned by the server.");
+            }
+            return;
+        }
+
+        modelSpinner.setEnabled(true);
+        if (modelInput != null) modelInput.setVisibility(View.GONE);
+        if (modelHintText != null) modelHintText.setText("Tap the field above to choose a model.");
+    }
+
+    private String getSelectedDialogModel() {
+        if (modelSpinner != null && modelSpinner.isEnabled() && modelSpinner.getSelectedItem() != null) {
+            String selected = modelSpinner.getSelectedItem().toString();
+            return "default".equals(selected) ? "" : selected.trim();
+        }
+        return modelInput != null ? modelInput.getText().toString().trim() : "";
     }
 
     private void confirmDelete() {
         new AlertDialog.Builder(this)
                 .setTitle("Delete Session")
                 .setMessage("Permanently delete this session? It will be stopped and removed "
-                        + "from the server — it will NOT be restored after a server restart.")
+                        + "from the server 鈥?it will NOT be restored after a server restart.")
                 .setPositiveButton("Delete", (d, w) -> {
                     WebSocketManager.getInstance().sendDeleteSession(sessionId);
                     ClawForegroundService.stop(this);
@@ -344,14 +495,61 @@ public class TerminalActivity extends AppCompatActivity
 
         switch (type) {
             case "chat_history":     handleChatHistory(data); break;
-            case "session_connected": isSessionRunning = "running".equals(data.get("status").getAsString()); runOnUiThread(() -> { updateToolbarStatus(); invalidateOptionsMenu(); }); break;
+            case "session_connected": {
+                isSessionRunning = "running".equals(data.get("status").getAsString());
+                if (data.has("agent") && !data.get("agent").isJsonNull()) sessionAgent = data.get("agent").getAsString();
+                if (data.has("model") && !data.get("model").isJsonNull()) sessionModel = data.get("model").getAsString();
+                runOnUiThread(() -> { updateToolbarStatus(); invalidateOptionsMenu(); });
+                break;
+            }
+            case "session_model_switched": {
+                if (data.has("agent") && !data.get("agent").isJsonNull()) sessionAgent = data.get("agent").getAsString();
+                sessionModel = data.has("model") && !data.get("model").isJsonNull()
+                        ? data.get("model").getAsString() : "";
+                runOnUiThread(() -> {
+                    updateToolbarStatus();
+                    chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE,
+                            "Model switched to " + getAgentLabel(sessionAgent) + " / " + getModelLabel()));
+                    scrollToBottom();
+                });
+                break;
+            }
+            case "agent_model_list": {
+                String agent = data.has("agent") && !data.get("agent").isJsonNull()
+                        ? data.get("agent").getAsString() : sessionAgent;
+                if (!agent.equals(sessionAgent)) break;
+                boolean supportsManual = !data.has("supportsManual") || data.get("supportsManual").getAsBoolean();
+                List<String> next = new ArrayList<>();
+                if (data.has("models") && data.get("models").isJsonArray()) {
+                    JsonArray arr = data.getAsJsonArray("models");
+                    for (int i = 0; i < arr.size(); i++) {
+                        if (!arr.get(i).isJsonNull()) {
+                            String model = arr.get(i).getAsString().trim();
+                            if (!model.isEmpty()) next.add(model);
+                        }
+                    }
+                }
+                runOnUiThread(() -> {
+                    modelOptions.clear();
+                    modelOptions.addAll(next);
+                    renderModelOptions(supportsManual);
+                });
+                break;
+            }
+            case "session_meta": {
+                if (data.has("model") && !data.get("model").isJsonNull()) {
+                    sessionModel = data.get("model").getAsString();
+                    runOnUiThread(this::updateToolbarStatus);
+                }
+                break;
+            }
             case "session_stopped": {
                 isSessionRunning = false;
                 runOnUiThread(() -> {
                     endTurnUi();
                     updateToolbarStatus();
                     invalidateOptionsMenu();
-                    chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "— Session stopped (tap ⋮ → Resume to continue) —"));
+                    chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "Session stopped (tap menu > Resume to continue)"));
                     scrollToBottom();
                 });
                 break;
@@ -361,7 +559,7 @@ public class TerminalActivity extends AppCompatActivity
                 runOnUiThread(() -> {
                     updateToolbarStatus();
                     invalidateOptionsMenu();
-                    chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "— Session resumed —"));
+                    chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "Session resumed"));
                     scrollToBottom();
                 });
                 break;
@@ -375,7 +573,7 @@ public class TerminalActivity extends AppCompatActivity
                 runOnUiThread(() -> {
                     if (turnActive) {
                         String prefix = turnAnswerText.length() > 0 ? turnAnswerText + "\n\n" : "";
-                        finalizeTurn(prefix + "⚠ " + msg);
+                        finalizeTurn(prefix + "鈿?" + msg);
                     } else {
                         Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
                     }
@@ -388,7 +586,7 @@ public class TerminalActivity extends AppCompatActivity
                 break;
             }
             case "session_response": {
-                // Final/canonical turn text — finalize the streaming bubble.
+                // Final/canonical turn text 鈥?finalize the streaming bubble.
                 String text = data.has("data") ? data.get("data").getAsString() : "";
                 runOnUiThread(() -> finalizeTurn(text));
                 break;
@@ -411,11 +609,10 @@ public class TerminalActivity extends AppCompatActivity
             }
             case "profile_switched": {
                 // The server restarts all running sessions itself on switch
-                // (server-driven), so the client must NOT also send a restart —
-                // that would double-restart. Just inform the user; the new model
+                // (server-driven), so the client must NOT also send a restart 鈥?                // that would double-restart. Just inform the user; the new model
                 // arrives via the fresh session_meta after the restart.
                 runOnUiThread(() ->
-                    Toast.makeText(this, "Profile switched · restarting session…", Toast.LENGTH_SHORT).show());
+                    Toast.makeText(this, "Profile switched; restarting session...", Toast.LENGTH_SHORT).show());
                 break;
             }
         }
@@ -465,18 +662,18 @@ public class TerminalActivity extends AppCompatActivity
 
         String label;
         switch (statusPhase) {
-            case PHASE_THINKING: label = "✳ Thinking…"; break;
-            case PHASE_TOOL:     label = "⚙ " + currentToolLabel; break;
-            case PHASE_WRITING:  label = "✍ Writing…"; break;
-            default:             label = "✳ Working…"; break;
+            case PHASE_THINKING: label = "Thinking..."; break;
+            case PHASE_TOOL:     label = "鈿?" + currentToolLabel; break;
+            case PHASE_WRITING:  label = "Writing..."; break;
+            default:             label = "Working..."; break;
         }
 
         int color;
         String text;
         if (idleMs > STUCK_MS) {
-            // No activity for a while — may be a long silent step or a hang.
+            // No activity for a while 鈥?may be a long silent step or a hang.
             color = COLOR_AMBER;
-            text = "⚠ " + label + " · no update " + (idleMs / 1000) + "s — tap to interrupt";
+            text = "Warning: " + label + " - no update " + (idleMs / 1000) + "s - tap to interrupt";
         } else {
             color = COLOR_GREEN;
             text = label + "  " + elapsed + "s";
@@ -489,7 +686,7 @@ public class TerminalActivity extends AppCompatActivity
         }
     }
 
-    /** Extended-thinking heartbeat from the server — keeps the bar "alive". */
+    /** Extended-thinking heartbeat from the server 鈥?keeps the bar "alive". */
     private void onThinking() {
         if (!turnActive) startTurnUi(chatAdapter.getItemCount());
         markActivity();
@@ -524,7 +721,7 @@ public class TerminalActivity extends AppCompatActivity
         // ends the segment (streamingIntoBubble=false) before appending its line.
         if (!streamingIntoBubble) return;
         chatAdapter.updateLastText(streamBuf.toString(), false);
-        // Don't call scrollToBottom() here — setStackFromEnd(true) keeps the
+        // Don't call scrollToBottom() here 鈥?setStackFromEnd(true) keeps the
         // bottom visible; explicit scrolling during rapid updates causes jitter.
     };
 
@@ -538,7 +735,7 @@ public class TerminalActivity extends AppCompatActivity
                              boolean ok, String result) {
         if ("running".equals(status)) {
             markActivity();
-            // A tool ends the current text segment — flush it so the next text
+            // A tool ends the current text segment 鈥?flush it so the next text
             // delta starts a new bubble below this tool line.
             if (streamingIntoBubble) {
                 chatList.removeCallbacks(streamRender);
@@ -548,7 +745,7 @@ public class TerminalActivity extends AppCompatActivity
             }
             String name = toolName != null && !toolName.isEmpty() ? toolName : "tool";
             if (id != null && !id.isEmpty() && turnToolIds.contains(id)) {
-                // Second event for the same tool — fill in its argument detail.
+                // Second event for the same tool 鈥?fill in its argument detail.
                 if (detail != null && !detail.isEmpty()) chatAdapter.updateToolDetail(id, detail);
             } else {
                 if (id != null && !id.isEmpty()) turnToolIds.add(id);
@@ -556,10 +753,10 @@ public class TerminalActivity extends AppCompatActivity
                 scrollToBottom();
             }
             statusPhase = PHASE_TOOL;
-            currentToolLabel = name + (detail != null && !detail.isEmpty() ? " · " + detail : "");
+            currentToolLabel = name + (detail != null && !detail.isEmpty() ? " 路 " + detail : "");
             updateStatusBar();
         } else if ("result".equals(status)) {
-            // Tool finished — annotate its line with the output snippet.
+            // Tool finished 鈥?annotate its line with the output snippet.
             markActivity();
             chatAdapter.updateToolResult(id, ok, result);
         } else if ("done".equals(status)) {
@@ -652,7 +849,7 @@ public class TerminalActivity extends AppCompatActivity
                     int type = "user".equals(role) ? ChatMessage.TYPE_USER : ChatMessage.TYPE_CLAUDE;
                     chatAdapter.addMessage(new ChatMessage(type, text, ts));
                 }
-                // Server is source of truth — overwrite local cache
+                // Server is source of truth 鈥?overwrite local cache
                 ChatHistoryStore.getInstance().saveFromEntries(sessionId, entries);
             }
             if (data.has("pending") && !data.get("pending").isJsonNull()) {
@@ -680,9 +877,9 @@ public class TerminalActivity extends AppCompatActivity
             // bubble settles and the status bar/button reset.
             if (turnActive) {
                 String prefix = turnAnswerText.length() > 0 ? turnAnswerText + "\n\n" : "";
-                finalizeTurn(prefix + "⚠ " + error);
+                finalizeTurn(prefix + "Warning: " + error);
             } else {
-                chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "⚠ " + error));
+                chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE, "Warning: " + error));
             }
             Toast.makeText(this, error, Toast.LENGTH_SHORT).show();
         });
@@ -690,7 +887,7 @@ public class TerminalActivity extends AppCompatActivity
 
     private void onConnectionChanged(boolean connected) {
         runOnUiThread(() -> {
-            toolbarStatus.setText(connected ? "● connected" : "● disconnected");
+            toolbarStatus.setText(connected ? "connected" : "disconnected");
             toolbarStatus.setTextColor(connected ? 0xFF51CF66 : 0xFFFFD43B);
             if (connected) WebSocketManager.getInstance().sendConnectSession(sessionId);
         });
@@ -701,7 +898,7 @@ public class TerminalActivity extends AppCompatActivity
     // ============================================================
 
     private void sendInput() {
-        // If a turn is in flight, stop is handled in the button click — in
+        // If a turn is in flight, stop is handled in the button click 鈥?in
         // case we get here via keyboard, block sending while busy.
         if (turnActive) return;
 
@@ -711,7 +908,7 @@ public class TerminalActivity extends AppCompatActivity
         if (raw.trim().isEmpty()) return;
 
         if (!isSessionRunning) {
-            Toast.makeText(this, "Session stopped — tap ⋮ → Resume to continue", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Session stopped - tap menu > Resume to continue", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -720,7 +917,7 @@ public class TerminalActivity extends AppCompatActivity
         WebSocketManager wm = WebSocketManager.getInstance();
         if (!wm.isConnected()) {
             wm.connect();
-            Toast.makeText(this, "Not connected — reconnecting...", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Not connected - reconnecting...", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -732,7 +929,7 @@ public class TerminalActivity extends AppCompatActivity
         // Liveness is shown by the status bar (no placeholder bubble).
         startTurnUi(startIndex);
 
-        // Scroll without guard — always go to bottom after sending
+        // Scroll without guard 鈥?always go to bottom after sending
         final int target = chatAdapter.getItemCount() - 1;
         chatList.postDelayed(() -> {
             chatList.scrollToPosition(target);
@@ -756,8 +953,20 @@ public class TerminalActivity extends AppCompatActivity
     }
 
     private void updateToolbarStatus() {
-        toolbarStatus.setText(isSessionRunning ? "● running" : "● exited");
+        toolbarTitle.setText(getDisplayDir(sessionDirectory));
+        toolbarStatus.setText(isSessionRunning ? "running" : "exited");
         toolbarStatus.setTextColor(isSessionRunning ? 0xFF51CF66 : 0xFFFF6B6B);
+        toolbarModel.setText("[" + getAgentLabel(sessionAgent) + " / " + getModelLabel() + "]");
+    }
+
+    private String getAgentLabel(String agent) {
+        if ("codex".equals(agent)) return "Codex";
+        if ("opencode".equals(agent)) return "OpenCode";
+        return "Claude";
+    }
+
+    private String getModelLabel() {
+        return sessionModel != null && !sessionModel.isEmpty() ? sessionModel : "default";
     }
 
     private String getDisplayDir(String dir) {

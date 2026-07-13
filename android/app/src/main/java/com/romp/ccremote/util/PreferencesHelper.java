@@ -13,6 +13,10 @@ public class PreferencesHelper {
     private static final String KEY_AUTH_TOKEN = "auth_token";
     private static final String KEY_LAST_DIRECTORY = "last_directory";
     private static final String KEY_RECENT_DIRECTORIES = "recent_dirs";
+    private static final String KEY_DEFAULT_AGENT = "default_agent";
+    private static final String KEY_MODEL_CLAUDE = "model_claude";
+    private static final String KEY_MODEL_CODEX = "model_codex";
+    private static final String KEY_MODEL_OPENCODE = "model_opencode";
 
     private static SharedPreferences prefs;
 
@@ -69,6 +73,29 @@ public class PreferencesHelper {
         dirs.add(0, dir);
         if (dirs.size() > 5) dirs = new java.util.ArrayList<>(dirs.subList(0, 5));
         prefs.edit().putString(KEY_RECENT_DIRECTORIES, new com.google.gson.Gson().toJson(dirs)).apply();
+    }
+
+    public static String getDefaultAgent() {
+        return prefs.getString(KEY_DEFAULT_AGENT, "claude");
+    }
+
+    public static void setDefaultAgent(String agent) {
+        prefs.edit().putString(KEY_DEFAULT_AGENT,
+                agent != null && !agent.isEmpty() ? agent : "claude").apply();
+    }
+
+    private static String modelKey(String agent) {
+        if ("codex".equals(agent)) return KEY_MODEL_CODEX;
+        if ("opencode".equals(agent)) return KEY_MODEL_OPENCODE;
+        return KEY_MODEL_CLAUDE;
+    }
+
+    public static String getDefaultModel(String agent) {
+        return prefs.getString(modelKey(agent), "");
+    }
+
+    public static void setDefaultModel(String agent, String model) {
+        prefs.edit().putString(modelKey(agent), model != null ? model.trim() : "").apply();
     }
 
     public static String getWebSocketUrl() {
