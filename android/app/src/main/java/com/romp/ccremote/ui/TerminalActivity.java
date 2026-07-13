@@ -475,7 +475,7 @@ public class TerminalActivity extends AppCompatActivity
         new AlertDialog.Builder(this)
                 .setTitle("Delete Session")
                 .setMessage("Permanently delete this session? It will be stopped and removed "
-                        + "from the server 鈥?it will NOT be restored after a server restart.")
+                        + "from the server. It will NOT be restored after a server restart.")
                 .setPositiveButton("Delete", (d, w) -> {
                     WebSocketManager.getInstance().sendDeleteSession(sessionId);
                     ClawForegroundService.stop(this);
@@ -573,7 +573,7 @@ public class TerminalActivity extends AppCompatActivity
                 runOnUiThread(() -> {
                     if (turnActive) {
                         String prefix = turnAnswerText.length() > 0 ? turnAnswerText + "\n\n" : "";
-                        finalizeTurn(prefix + "鈿?" + msg);
+                        finalizeTurn(prefix + "Error: " + msg);
                     } else {
                         Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
                     }
@@ -663,7 +663,7 @@ public class TerminalActivity extends AppCompatActivity
         String label;
         switch (statusPhase) {
             case PHASE_THINKING: label = "Thinking..."; break;
-            case PHASE_TOOL:     label = "鈿?" + currentToolLabel; break;
+            case PHASE_TOOL:     label = "Running " + currentToolLabel; break;
             case PHASE_WRITING:  label = "Writing..."; break;
             default:             label = "Working..."; break;
         }
@@ -753,7 +753,7 @@ public class TerminalActivity extends AppCompatActivity
                 scrollToBottom();
             }
             statusPhase = PHASE_TOOL;
-            currentToolLabel = name + (detail != null && !detail.isEmpty() ? " 路 " + detail : "");
+            currentToolLabel = name + (detail != null && !detail.isEmpty() ? " - " + detail : "");
             updateStatusBar();
         } else if ("result".equals(status)) {
             // Tool finished 鈥?annotate its line with the output snippet.

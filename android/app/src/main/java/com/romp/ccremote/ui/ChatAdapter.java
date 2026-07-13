@@ -212,9 +212,9 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
         if (msg.type == ChatMessage.TYPE_TOOL) {
             if (holder.toolNameView != null) {
                 String name = msg.toolName != null ? msg.toolName : "tool";
-                String label = (msg.toolDone ? "✓ " : "⚙ ") + name;
+                String label = (msg.toolDone ? "[done] " : "[running] ") + name;
                 if (msg.toolDetail != null && !msg.toolDetail.isEmpty()) {
-                    label += " · " + msg.toolDetail;
+                    label += " - " + msg.toolDetail;
                 }
                 holder.toolNameView.setText(label);
                 // Dim finished tools so the running one stands out.
@@ -222,7 +222,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
             }
             if (holder.toolResultView != null) {
                 if (msg.toolResult != null && !msg.toolResult.isEmpty()) {
-                    holder.toolResultView.setText("→ " + msg.toolResult);
+                    holder.toolResultView.setText("> " + msg.toolResult);
                     holder.toolResultView.setTextColor(msg.toolError ? 0xFFFF6B6B : 0xFFA0A0B0);
                     holder.toolResultView.setVisibility(View.VISIBLE);
                 } else {
@@ -266,7 +266,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
 
             // Toggle button: shows what clicking it will switch TO
             if (holder.toggleBtn != null) {
-                holder.toggleBtn.setText(msg.showRendered ? "原文" : "渲染");
+                holder.toggleBtn.setText(msg.showRendered ? "Raw" : "Render");
                 holder.toggleBtn.setVisibility(View.VISIBLE);
                 holder.toggleBtn.setOnClickListener(v -> {
                     int p = holder.getAdapterPosition();
