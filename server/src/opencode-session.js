@@ -78,6 +78,7 @@ class OpenCodeSession extends EventEmitter {
     this._modelChangedSinceLastTurn = false;
     this._stopped = false;
     this._finalSent = false;
+    this._pendingApprovals = new Set();
     this.child = null;
     this._stdoutRl = null;
   }
@@ -197,17 +198,23 @@ class OpenCodeSession extends EventEmitter {
       this._setOpenCodeSessionId(obj.sessionID);
     }
 
-    // Auto-approve: if opencode asks for approval (e.g. for tool execution),
-    // write y\n to stdin so it doesn't hang waiting for user input.
-    {
-      const haystack = (String(obj.type || obj.event || obj.kind || '') + ' ' +
-        String((obj.part || obj).type || (obj.part || obj).kind || '')).toLowerCase();
-      if (/(approval|permission|confirm|escalat)/.test(haystack) &&
-          !/(response|result|completed|denied|approved)/.test(haystack)) {
-        try { if (this.child && this.child.stdin && this.child.stdin.writable) this.child.stdin.write('y\n'); } catch (_) {}
-        this._broadcast({ type: 'operation_approval_request', session_id: this.id, agent: this.agent });
-        return;
-      }
+    // Approval request detection — broadcast to client for dialog.
+    if (/(approval|permission|confirm)/.test(String(obj.type || obj.event || '').toLowerCase()) &&
+        !/(response|result|completed|denied|approved)/.test(String(obj.type || '').toLowerCase())) {
+      const part = obj.part || obj;
+      const requestId = obj.id || obj.request_id || `approval-${Date.now()}`;
+      const action = obj.action || part.action || part.tool || part.name || obj.type || 'operation';
+      const detail = obj.detail || part.detail || part.command || part.path || part.input || '';
+      const command = obj.command || part.command || '';
+      const reason = obj.reason || part.reason || part.justification || part.message || '';
+      this._broadcast({
+        type: 'operation_approval_request', session_id: this.id, agent: this.agent,
+        request_id: requestId, action,
+        detail: typeof detail === 'string' ? detail : JSON.stringify(detail),
+        command: typeof command === 'string' ? command : JSON.stringify(command),
+        reason: typeof reason === 'string' ? reason : JSON.stringify(reason),
+      });
+      return;
     }
 
     const part = obj.part || obj;
@@ -239,10 +246,31 @@ class OpenCodeSession extends EventEmitter {
     this._chatBusy = false;
     this._chatPending = null;
     this._turnText = '';
+    this._pendingApprovals.clear();
     const finalText = text || '';
     if (finalText) this._pushHistory({ role: 'claude', text: finalText, ts: Date.now() });
     this.emit('turnComplete');
     this._broadcast({ type: 'session_response', session_id: this.id, data: finalText, is_error: !!isError });
+  }
+
+  respondToApproval(requestId, approved) {
+    if (!this.child || !this.child.stdin || !this.child.stdin.writable) {
+      return { ok: false, error: 'No active OpenCode process is waiting for approval' };
+    }
+    const id = String(requestId || '');
+    if (id) this._pendingApprovals.delete(id);
+    try {
+      this.child.stdin.write(approved ? 'y\n' : 'n\n');
+      this._broadcast({
+        type: 'operation_approval_resolved',
+        session_id: this.id,
+        request_id: id,
+        approved: !!approved,
+      });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: 'Failed to write approval response: ' + err.message };
+    }
   }
 
   interrupt() {
@@ -322,6 +350,7 @@ class OpenCodeSession extends EventEmitter {
     this._stopped = true;
     this.isRunning = false;
     this.exitCode = 0;
+    this._pendingApprovals.clear();
     if (this._chatBusy) this.interrupt();
     this._broadcast({ type: 'session_stopped', session_id: this.id });
   }
