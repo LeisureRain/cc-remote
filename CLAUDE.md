@@ -60,6 +60,7 @@ All messages are JSON with a `type` field.
 | C→S | `connect_session` | `session_id` |
 | C→S | `send_input` | `session_id`, `text` |
 | C→S | `send_chat` | `session_id`, `text` (`continue` accepted but ignored — the persistent process always continues) |
+| C→S | `approval_response` | `session_id`, `request_id`, `approved` (bool) — responds to a CLI operation authorization request |
 | C→S | `restart_session` | `session_id` — kills and relaunches the claude process to pick up the current model |
 | C→S | `disconnect_session` | `session_id` |
 | C→S | `stop_session` | `session_id` — stops (pauses) the session: terminates the claude process but keeps the session + its persisted state so it can be resumed. A stopped session stays stopped across a server restart |
@@ -80,6 +81,8 @@ All messages are JSON with a `type` field.
 | S→C | `session_output` | `session_id`, `data_raw` (string), `replay` (bool, optional) |
 | S→C | `session_delta` | `session_id`, `text` (incremental streaming token chunk) |
 | S→C | `session_tool` | `session_id`, `status` (`running`\|`result`\|`done`), `name` (tool name, on `running`), `id` (tool_use id, optional), `detail` (argument summary e.g. command/file, optional), `ok` (bool, on `result`), `result` (output snippet, on `result`) |
+| S→C | `operation_approval_request` | `session_id`, `request_id`, `agent`, `action`, `detail`, `command`, `path`, `reason` — CLI is blocked waiting for user authorization |
+| S→C | `operation_approval_resolved` | `session_id`, `request_id`, `approved` |
 | S→C | `session_thinking` | `session_id`, `active` (bool) — throttled extended-thinking heartbeat for client liveness |
 | S→C | `session_response` | `session_id`, `data` (string), `is_error`, `cost_usd`, `duration_ms` (finalized turn text) |
 | S→C | `session_killed` | `session_id` |
@@ -103,6 +106,8 @@ npm run dev            # Start with --watch for auto-reload
 ```
 
 Configuration is loaded from `server/config.json` (default port 11199, host 0.0.0.0, max 20 sessions, workspace empty, `persistSessions: true`, `sessionsDir: "sessions"`). Environment variables (`PORT`, `HOST`, `MAX_SESSIONS`, `WORKSPACE`, `PERMISSION_MODE`, `PERSIST_SESSIONS`, `SESSIONS_DIR`) override the config file. When `workspace` is set to a non-empty path, directory browsing and session creation are restricted to that directory and its subdirectories (enforced server-side). When `persistSessions` is on, session state is written to `sessionsDir` (gitignored) and restored on restart via `--resume`.
+
+Codex sessions use `codex exec --json`. The server starts Codex with `CODEX_SANDBOX=workspace-write` by default, so the selected session directory is writable. Override with `CODEX_SANDBOX=read-only` or `CODEX_SANDBOX=danger-full-access` when needed. Codex exec currently records `approval_policy: never` even when the top-level CLI accepts `--ask-for-approval`, so CC Remote cannot surface interactive Codex approval prompts on this adapter. For a trusted local machine where Codex must run without sandbox restrictions, set `CODEX_BYPASS_APPROVALS_AND_SANDBOX=1` before `npm start`; this passes Codex's `--dangerously-bypass-approvals-and-sandbox` flag.
 
 ### CC Switch Integration
 

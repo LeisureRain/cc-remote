@@ -447,6 +447,15 @@ public class WebSocketManager {
         return send(gson.toJson(msg));
     }
 
+    public boolean sendApprovalResponse(String sessionId, String requestId, boolean approved) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "approval_response");
+        msg.addProperty("session_id", sessionId);
+        msg.addProperty("request_id", requestId != null ? requestId : "");
+        msg.addProperty("approved", approved);
+        return send(gson.toJson(msg));
+    }
+
     public boolean sendServerInfo() {
         return send("{\"type\":\"server_info\"}");
     }

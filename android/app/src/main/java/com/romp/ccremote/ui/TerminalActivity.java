@@ -603,6 +603,29 @@ public class TerminalActivity extends AppCompatActivity
                 runOnUiThread(() -> onToolEvent(status, name, id, detail, ok, result));
                 break;
             }
+            case "operation_approval_request": {
+                String requestId = data.has("request_id") && !data.get("request_id").isJsonNull()
+                        ? data.get("request_id").getAsString() : "";
+                String action = data.has("action") && !data.get("action").isJsonNull()
+                        ? data.get("action").getAsString() : "operation";
+                String detail = data.has("detail") && !data.get("detail").isJsonNull()
+                        ? data.get("detail").getAsString() : "";
+                String command = data.has("command") && !data.get("command").isJsonNull()
+                        ? data.get("command").getAsString() : "";
+                String reason = data.has("reason") && !data.get("reason").isJsonNull()
+                        ? data.get("reason").getAsString() : "";
+                runOnUiThread(() -> showApprovalDialog(requestId, action, detail, command, reason));
+                break;
+            }
+            case "operation_approval_resolved": {
+                boolean approved = data.has("approved") && data.get("approved").getAsBoolean();
+                runOnUiThread(() -> {
+                    chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE,
+                            approved ? "Operation approved" : "Operation denied"));
+                    scrollToBottom();
+                });
+                break;
+            }
             case "session_thinking": {
                 runOnUiThread(this::onThinking);
                 break;
@@ -616,6 +639,43 @@ public class TerminalActivity extends AppCompatActivity
                 break;
             }
         }
+    }
+
+    private void showApprovalDialog(String requestId, String action, String detail,
+                                    String command, String reason) {
+        markActivity();
+        if (!turnActive) startTurnUi(chatAdapter.getItemCount());
+        statusPhase = PHASE_TOOL;
+        currentToolLabel = "approval required";
+        updateStatusBar();
+
+        StringBuilder body = new StringBuilder();
+        if (detail != null && !detail.isEmpty()) body.append(detail);
+        if (command != null && !command.isEmpty() && !command.equals(detail)) {
+            if (body.length() > 0) body.append("\n\n");
+            body.append(command);
+        }
+        if (reason != null && !reason.isEmpty() && body.indexOf(reason) < 0) {
+            if (body.length() > 0) body.append("\n\nReason: ");
+            body.append(reason);
+        }
+        if (body.length() == 0) body.append("Codex is requesting permission to continue.");
+
+        chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE,
+                "Approval requested: " + action + "\n" + body));
+        scrollToBottom();
+
+        new AlertDialog.Builder(this)
+                .setTitle("Approve Operation")
+                .setMessage(body.toString())
+                .setPositiveButton("Approve", (d, w) ->
+                        WebSocketManager.getInstance().sendApprovalResponse(sessionId, requestId, true))
+                .setNegativeButton("Deny", (d, w) ->
+                        WebSocketManager.getInstance().sendApprovalResponse(sessionId, requestId, false))
+                .setOnCancelListener(d ->
+                        WebSocketManager.getInstance().sendApprovalResponse(sessionId, requestId, false))
+                .create()
+                .show();
     }
 
     // ============================================================

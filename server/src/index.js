@@ -586,6 +586,19 @@ wss.on('connection', (ws, req) => {
         if (!r.ok) sendToClient(ws, { type: 'error', message: r.error });
         break;
       }
+      case 'approval_response': {
+        const sid = message.session_id || currentSessionId;
+        if (!sid) { sendToClient(ws, { type: 'error', message: 'No session specified' }); return; }
+        const s = sessionManager.getSession(sid);
+        if (!s) { sendToClient(ws, { type: 'error', message: `Session ${sid} not found` }); return; }
+        if (typeof s.respondToApproval !== 'function') {
+          sendToClient(ws, { type: 'error', message: `${s.agent || 'This session'} does not support operation approvals` });
+          return;
+        }
+        const r = s.respondToApproval(message.request_id || '', !!message.approved);
+        if (!r.ok) sendToClient(ws, { type: 'error', message: r.error });
+        break;
+      }
       case 'disconnect_session': {
         const sid = message.session_id || currentSessionId;
         if (sid) {

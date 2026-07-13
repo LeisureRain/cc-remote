@@ -14,9 +14,21 @@ const os = require('os');
 const path = require('path');
 
 const MAX_CHAT_HISTORY = 400;
+const CODEX_SANDBOX = process.env.CODEX_SANDBOX || 'workspace-write';
+const CODEX_BYPASS_SANDBOX = /^(1|true|yes)$/i.test(
+  process.env.CODEX_BYPASS_APPROVALS_AND_SANDBOX ||
+  process.env.CODEX_DANGEROUSLY_BYPASS_APPROVALS_AND_SANDBOX ||
+  ''
+);
 
 function quoteArg(s) {
   return '"' + String(s).replace(/(["\\])/g, '\\$1') + '"';
+}
+
+function promptArg(s) {
+  return process.platform === 'win32'
+    ? String(s).replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n/g, '\\n')
+    : s;
 }
 
 function commandFor(args) {
@@ -47,6 +59,48 @@ function summarizeItem(item) {
     return { name: item.name || item.tool_name || type, detail: item.arguments || item.input || item.summary || '' };
   }
   return null;
+}
+
+function compact(value, max = 300) {
+  let s = '';
+  if (typeof value === 'string') s = value;
+  else if (value != null) {
+    try { s = JSON.stringify(value); } catch (_) { s = String(value); }
+  }
+  s = s.replace(/\s+/g, ' ').trim();
+  return s.length > max ? s.slice(0, max - 1) + '...' : s;
+}
+
+function findApprovalRequest(obj) {
+  if (!obj || typeof obj !== 'object') return null;
+  const type = String(obj.type || obj.event || obj.kind || '');
+  const payload = obj.payload || obj.data || obj.item || obj;
+  const payloadType = String(payload.type || payload.kind || payload.name || '');
+  const haystack = `${type} ${payloadType}`.toLowerCase();
+  if (!/(approval|permission|confirm|escalat)/.test(haystack)) return null;
+  if (/(response|result|completed|denied|approved)/.test(haystack)) return null;
+
+  const args = payload.arguments || {};
+  const input = payload.input || {};
+  const command = payload.command || payload.cmd || args.command || input.command || '';
+  const pathValue = payload.path || payload.file_path || payload.cwd ||
+    args.path || args.file_path || input.path || input.file_path || '';
+  const reason = payload.reason || payload.justification || payload.message ||
+    payload.summary || payload.title || obj.message || '';
+  const id = payload.id || payload.request_id || payload.approval_id ||
+    obj.id || obj.request_id || obj.approval_id || `approval-${Date.now()}`;
+  const action = String(payload.action || payload.operation || payload.tool ||
+    payload.name || type || 'operation');
+
+  return {
+    request_id: String(id),
+    action,
+    command: compact(command, 800),
+    path: compact(pathValue, 300),
+    reason: compact(reason, 500),
+    detail: compact(command || pathValue || reason || payload, 500),
+    raw_type: type,
+  };
 }
 
 function codexSessionsRoot() {
@@ -131,6 +185,7 @@ class CodexSession extends EventEmitter {
     this._lastMessageFile = null;
     this._finalSent = false;
     this._processStartedAt = 0;
+    this._pendingApprovals = new Set();
   }
 
   toJSON() {
@@ -184,11 +239,20 @@ class CodexSession extends EventEmitter {
     try { fs.mkdirSync(outDir, { recursive: true }); } catch (_) {}
     this._lastMessageFile = path.join(outDir, `${this.id}-${Date.now()}.txt`);
 
-    const args = this.codexSessionId
-      ? ['exec', 'resume', '--json', '--skip-git-repo-check', '--output-last-message', this._lastMessageFile, this.codexSessionId, '-']
-      : ['exec', '--json', '--skip-git-repo-check', '--output-last-message', this._lastMessageFile, '-'];
+    const outboundPrompt = promptArg(prompt);
+    const args = ['exec'];
+    if (CODEX_BYPASS_SANDBOX) {
+      args.push('--dangerously-bypass-approvals-and-sandbox');
+    } else {
+      args.push('--sandbox', CODEX_SANDBOX);
+    }
+    args.push('--cd', this.directory);
+    if (this.codexSessionId) args.push('resume');
+    args.push('--json', '--skip-git-repo-check', '--output-last-message', this._lastMessageFile);
+    if (this.codexSessionId) args.push(this.codexSessionId);
+    args.push(outboundPrompt);
     if (this.model) {
-      const insertAt = this.codexSessionId ? 3 : 1;
+      const insertAt = this.codexSessionId ? args.indexOf('resume') + 1 : args.indexOf('exec') + 1;
       args.splice(insertAt, 0, '--model', this.model);
     }
 
@@ -205,7 +269,8 @@ class CodexSession extends EventEmitter {
       return { ok: false, error: 'Failed to start codex: ' + err.message };
     }
 
-    console.log(`[CodexSession ${this.id}] PID ${this.child.pid} (${this.codexSessionId ? 'resume' : 'new'})`);
+    const sandboxLabel = CODEX_BYPASS_SANDBOX ? 'bypass-approvals-and-sandbox' : CODEX_SANDBOX;
+    console.log(`[CodexSession ${this.id}] PID ${this.child.pid} (${this.codexSessionId ? 'resume' : 'new'}, sandbox=${sandboxLabel})`);
 
     this._stdoutRl = readline.createInterface({ input: this.child.stdout });
     this._stdoutRl.on('line', (line) => this._onLine(line));
@@ -246,13 +311,7 @@ class CodexSession extends EventEmitter {
       this._finishTurn({ isError: code !== 0, text: finalText });
     });
 
-    try {
-      this.child.stdin.write(prompt + '\n');
-      this.child.stdin.end();
-    } catch (err) {
-      this._finishTurn({ isError: true, text: 'Failed to write to codex: ' + err.message });
-      return { ok: false, error: 'Failed to write to codex: ' + err.message };
-    }
+    try { this.child.stdin.end(); } catch (_) {}
 
     return { ok: true };
   }
@@ -273,6 +332,17 @@ class CodexSession extends EventEmitter {
     if (type === 'session_meta' && obj.payload && (obj.payload.session_id || obj.payload.id)) {
       this.codexSessionId = obj.payload.session_id || obj.payload.id;
       this._broadcast({ type: 'session_meta', session_id: this.id, codex_session_id: this.codexSessionId });
+      return;
+    }
+
+    const approval = findApprovalRequest(obj);
+    if (approval) {
+      this._pendingApprovals.add(approval.request_id);
+      this._broadcast(Object.assign({
+        type: 'operation_approval_request',
+        session_id: this.id,
+        agent: this.agent,
+      }, approval));
       return;
     }
 
@@ -300,12 +370,33 @@ class CodexSession extends EventEmitter {
     }
   }
 
+  respondToApproval(requestId, approved) {
+    if (!this.child || !this.child.stdin || !this.child.stdin.writable) {
+      return { ok: false, error: 'No active Codex process is waiting for approval' };
+    }
+    const id = String(requestId || '');
+    if (id) this._pendingApprovals.delete(id);
+    try {
+      this.child.stdin.write(approved ? 'y\n' : 'n\n');
+      this._broadcast({
+        type: 'operation_approval_resolved',
+        session_id: this.id,
+        request_id: id,
+        approved: !!approved,
+      });
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: 'Failed to write approval response: ' + err.message };
+    }
+  }
+
   _finishTurn({ isError, text }) {
     if (this._finalSent) return;
     this._finalSent = true;
     this._chatBusy = false;
     this._chatPending = null;
     this._turnText = '';
+    this._pendingApprovals.clear();
     const finalText = text || '';
     if (finalText) this._pushHistory({ role: 'claude', text: finalText, ts: Date.now() });
     this.emit('turnComplete');
