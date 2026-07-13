@@ -65,6 +65,8 @@ All messages are JSON with a `type` field.
 | C→S | `stop_session` | `session_id` — stops (pauses) the session: terminates the claude process but keeps the session + its persisted state so it can be resumed. A stopped session stays stopped across a server restart |
 | C→S | `resume_session` | `session_id` — relaunches a stopped session's claude process with `--resume` to restore context |
 | C→S | `delete_session` | `session_id` — stops the session and purges its persisted state so it is NOT restored on the next server reboot |
+| C→S | `list_agent_models` | `agent` (optional; defaults to `claude`) - returns selectable models when the server can discover them |
+| C→S | `switch_session_model` | `session_id`, `model` (empty string means default) - changes the per-session model override |
 | C→S | `server_info` | — |
 | C→S | `list_directory` | `path` |
 | C→S | `ping` | — |
@@ -72,6 +74,8 @@ All messages are JSON with a `type` field.
 | S→C | `session_created` | `session_id`, `directory`, `createdAt` |
 | S→C | `session_connected` | `session_id`, `directory`, `status`, `exitCode` |
 | S→C | `session_meta` | `session_id`, `claude_session_id`, `model`, `tools` (from claude's system/init) |
+| S→C | `agent_model_list` | `agent`, `models`, `supportsManual`, `source` (optional) |
+| S→C | `session_model_switched` | `session_id`, `agent`, `model` |
 | S→C | `session_restarted` | `session_id` (ack for `restart_session`) |
 | S→C | `session_output` | `session_id`, `data_raw` (string), `replay` (bool, optional) |
 | S→C | `session_delta` | `session_id`, `text` (incremental streaming token chunk) |

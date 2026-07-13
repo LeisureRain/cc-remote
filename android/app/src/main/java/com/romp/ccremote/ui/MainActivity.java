@@ -12,6 +12,8 @@ import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.HorizontalScrollView;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -75,8 +77,10 @@ public class MainActivity extends AppCompatActivity {
         if ("session_created".equals(type)) {
             String sid = data.has("session_id") ? data.get("session_id").getAsString() : null;
             String dir = data.has("directory") ? data.get("directory").getAsString() : "";
+            String agent = data.has("agent") ? data.get("agent").getAsString() : "claude";
+            String model = data.has("model") && !data.get("model").isJsonNull() ? data.get("model").getAsString() : "";
             if (sid != null) {
-                openTerminal(sid, dir, "running");
+                openTerminal(sid, dir, "running", agent, model);
             }
         }
         // Show connection errors to the user
@@ -103,7 +107,7 @@ public class MainActivity extends AppCompatActivity {
         statusText = findViewById(R.id.status_text);
         statusServer = findViewById(R.id.status_server);
         statusProfile = findViewById(R.id.status_profile);
-        statusProfile.setOnClickListener(v -> showProfileDialog());
+        statusProfile.setOnClickListener(v -> showGlobalAgentDialog());
 
         swipeRefresh = findViewById(R.id.swipe_refresh);
         swipeRefresh.setOnRefreshListener(this::refreshSessions);
@@ -246,16 +250,16 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateProfileStatusBar() {
-        // Find the active profile name from cache
-        String name = "Default";
-        for (ProfileInfo p : cachedProfiles) {
-            if (p.id.equals(cachedActiveId)) {
-                name = p.name;
-                break;
-            }
-        }
-        statusProfile.setText("[" + name + "]");
+        String agent = PreferencesHelper.getDefaultAgent();
+        String model = PreferencesHelper.getDefaultModel(agent);
+        statusProfile.setText("[" + getAgentLabel(agent) + " / " + (model.isEmpty() ? "default" : model) + "]");
         statusProfile.setVisibility(View.VISIBLE);
+    }
+
+    private String getAgentLabel(String agent) {
+        if ("codex".equals(agent)) return "Codex";
+        if ("opencode".equals(agent)) return "OpenCode";
+        return "Claude";
     }
 
     private void refreshSessions() {
@@ -267,14 +271,20 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void onSessionClicked(SessionInfo session) {
-        openTerminal(session.id, session.directory, session.status);
+        openTerminal(session.id, session.directory, session.status, session.agent, session.model);
     }
 
     private void openTerminal(String id, String directory, String status) {
+        openTerminal(id, directory, status, "claude", "");
+    }
+
+    private void openTerminal(String id, String directory, String status, String agent, String model) {
         Intent intent = new Intent(this, TerminalActivity.class);
         intent.putExtra("session_id", id);
         intent.putExtra("session_directory", directory);
         intent.putExtra("session_status", status);
+        intent.putExtra("session_agent", agent);
+        intent.putExtra("session_model", model);
         startActivity(intent);
     }
 
@@ -396,10 +406,72 @@ public class MainActivity extends AppCompatActivity {
 
         root.addView(browseRow);
 
+        // --- Agent selection ---
+        TextView agentLabel = new TextView(this);
+        agentLabel.setText("Agent:");
+        agentLabel.setTextColor(0xFFBBBBBB);
+        agentLabel.setTextSize(13);
+        agentLabel.setPadding(0, (int)(10 * getResources().getDisplayMetrics().density), 0, 4);
+        root.addView(agentLabel);
+
+        final RadioGroup agentGroup = new RadioGroup(this);
+        agentGroup.setOrientation(RadioGroup.HORIZONTAL);
+        agentGroup.setPadding(0, 0, 0, 0);
+
+        final RadioButton claudeRadio = new RadioButton(this);
+        claudeRadio.setText("Claude");
+        claudeRadio.setTextColor(0xFFE0E0E0);
+        claudeRadio.setId(View.generateViewId());
+        agentGroup.addView(claudeRadio);
+
+        final RadioButton codexRadio = new RadioButton(this);
+        codexRadio.setText("Codex");
+        codexRadio.setTextColor(0xFFE0E0E0);
+        codexRadio.setId(View.generateViewId());
+        agentGroup.addView(codexRadio);
+
+        final RadioButton openCodeRadio = new RadioButton(this);
+        openCodeRadio.setText("OpenCode");
+        openCodeRadio.setTextColor(0xFFE0E0E0);
+        openCodeRadio.setId(View.generateViewId());
+        agentGroup.addView(openCodeRadio);
+
+        root.addView(agentGroup);
+
+        TextView modelLabel = new TextView(this);
+        modelLabel.setText("Model:");
+        modelLabel.setTextColor(0xFFBBBBBB);
+        modelLabel.setTextSize(13);
+        modelLabel.setPadding(0, (int)(8 * getResources().getDisplayMetrics().density), 0, 4);
+        root.addView(modelLabel);
+
+        final EditText modelInput = new EditText(this);
+        modelInput.setTextColor(0xFFE0E0E0);
+        modelInput.setHintTextColor(0xFF888888);
+        modelInput.setHint("default");
+        modelInput.setBackgroundResource(R.drawable.input_bg);
+        modelInput.setSingleLine(true);
+        modelInput.setPadding(padH + 4, padV + 2, padH + 4, padV + 2);
+        root.addView(modelInput);
+
+        String defaultAgent = PreferencesHelper.getDefaultAgent();
+        if ("codex".equals(defaultAgent)) codexRadio.setChecked(true);
+        else if ("opencode".equals(defaultAgent)) openCodeRadio.setChecked(true);
+        else claudeRadio.setChecked(true);
+        modelInput.setText(PreferencesHelper.getDefaultModel(defaultAgent));
+        modelInput.setSelection(modelInput.getText().length());
+        agentGroup.setOnCheckedChangeListener((group, checkedId) -> {
+            String selected = checkedId == codexRadio.getId()
+                    ? "codex"
+                    : (checkedId == openCodeRadio.getId() ? "opencode" : "claude");
+            modelInput.setText(PreferencesHelper.getDefaultModel(selected));
+            modelInput.setSelection(modelInput.getText().length());
+        });
+
         // --- Show dialog ---
         // Custom title view with white text
         TextView titleView = new TextView(this);
-        titleView.setText("Start Claude Code");
+        titleView.setText("Start Session");
         titleView.setTextColor(0xFFFFFFFF);
         titleView.setTextSize(18);
         titleView.setPadding(padH * 2, padV * 3, padH * 2, padV);
@@ -415,7 +487,15 @@ public class MainActivity extends AppCompatActivity {
                     }
                     PreferencesHelper.setLastDirectory(directory);
                     PreferencesHelper.addRecentDirectory(directory);
-                    wsManager.sendCreateSession(directory);
+                    int selectedAgent = agentGroup.getCheckedRadioButtonId();
+                    String agent = selectedAgent == codexRadio.getId()
+                            ? "codex"
+                            : (selectedAgent == openCodeRadio.getId() ? "opencode" : "claude");
+                    String model = modelInput.getText().toString().trim();
+                    PreferencesHelper.setDefaultAgent(agent);
+                    PreferencesHelper.setDefaultModel(agent, model);
+                    updateProfileStatusBar();
+                    wsManager.sendCreateSession(directory, agent, model);
                     Toast.makeText(MainActivity.this, "Creating session...", Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
@@ -1184,5 +1264,99 @@ public class MainActivity extends AppCompatActivity {
     private void openSettings() {
         Intent intent = new Intent(this, SettingsActivity.class);
         startActivity(intent);
+    }
+
+    private void showGlobalAgentDialog() {
+        final int padH = (int) (12 * getResources().getDisplayMetrics().density);
+        final int padV = (int) (8 * getResources().getDisplayMetrics().density);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(padH, padV, padH, padV);
+        root.setBackgroundColor(0xFF161B22);
+
+        RadioGroup group = new RadioGroup(this);
+        group.setOrientation(RadioGroup.VERTICAL);
+
+        RadioButton claude = new RadioButton(this);
+        claude.setText("Claude");
+        claude.setTextColor(0xFFE0E0E0);
+        claude.setId(View.generateViewId());
+        group.addView(claude);
+
+        RadioButton codex = new RadioButton(this);
+        codex.setText("Codex");
+        codex.setTextColor(0xFFE0E0E0);
+        codex.setId(View.generateViewId());
+        group.addView(codex);
+
+        RadioButton opencode = new RadioButton(this);
+        opencode.setText("OpenCode");
+        opencode.setTextColor(0xFFE0E0E0);
+        opencode.setId(View.generateViewId());
+        group.addView(opencode);
+
+        root.addView(group);
+
+        TextView modelLabel = new TextView(this);
+        modelLabel.setText("Default model for selected tool:");
+        modelLabel.setTextColor(0xFFBBBBBB);
+        modelLabel.setTextSize(13);
+        modelLabel.setPadding(0, padV, 0, 4);
+        root.addView(modelLabel);
+
+        EditText modelInput = new EditText(this);
+        modelInput.setTextColor(0xFFE0E0E0);
+        modelInput.setHintTextColor(0xFF888888);
+        modelInput.setHint("default");
+        modelInput.setBackgroundResource(R.drawable.input_bg);
+        modelInput.setSingleLine(true);
+        modelInput.setPadding(padH + 4, padV + 2, padH + 4, padV + 2);
+        root.addView(modelInput);
+
+        String current = PreferencesHelper.getDefaultAgent();
+        if ("codex".equals(current)) codex.setChecked(true);
+        else if ("opencode".equals(current)) opencode.setChecked(true);
+        else claude.setChecked(true);
+        modelInput.setText(PreferencesHelper.getDefaultModel(current));
+        modelInput.setSelection(modelInput.getText().length());
+
+        group.setOnCheckedChangeListener((g, checkedId) -> {
+            String agent = checkedId == codex.getId()
+                    ? "codex"
+                    : (checkedId == opencode.getId() ? "opencode" : "claude");
+            modelInput.setText(PreferencesHelper.getDefaultModel(agent));
+            modelInput.setSelection(modelInput.getText().length());
+        });
+
+        TextView titleView = new TextView(this);
+        titleView.setText("Default Tool / Model");
+        titleView.setTextColor(0xFFFFFFFF);
+        titleView.setTextSize(18);
+        titleView.setPadding(padH * 2, padV * 2, padH * 2, padV);
+        titleView.setTypeface(null, android.graphics.Typeface.BOLD);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setCustomTitle(titleView)
+                .setView(root)
+                .setPositiveButton("Save", (d, which) -> {
+                    int checked = group.getCheckedRadioButtonId();
+                    String agent = checked == codex.getId()
+                            ? "codex"
+                            : (checked == opencode.getId() ? "opencode" : "claude");
+                    PreferencesHelper.setDefaultAgent(agent);
+                    PreferencesHelper.setDefaultModel(agent, modelInput.getText().toString());
+                    updateProfileStatusBar();
+                })
+                .setNeutralButton("Claude Profiles", (d, which) -> showProfileDialog())
+                .setNegativeButton("Cancel", null)
+                .create();
+        dialog.show();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawableResource(R.drawable.dialog_bg);
+        }
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(0xFF51CF66);
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setTextColor(0xFF74C0FC);
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(0xFF888888);
     }
 }

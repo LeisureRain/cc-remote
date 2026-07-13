@@ -34,30 +34,9 @@ const MAX_CHAT_HISTORY = 400;
  * DOES win over the user's settings.json. (Verified empirically.)
  *
  * index.js owns writing this file (on startup and on every profile switch);
- * here we only read it (for --settings and for the launch model).
+ * here we only pass it to Claude with --settings.
  */
 const ACTIVE_SETTINGS_FILE = path.join(__dirname, '..', 'profiles', 'active-settings.json');
-
-/**
- * Resolve the model to launch `claude` with, read fresh from CC Remote's
- * private active-settings.json overlay (the same file passed via --settings).
- *
- * Why force a model at all: `claude --resume` otherwise pins the model that is
- * recorded in the session's own history file. If the user has since switched to
- * a proxy that doesn't serve that model, resume fails with "model not found".
- * Passing `--model <current>` overrides the stale pin so a resumed session
- * follows whatever profile is active now. Returns '' to mean "don't pass
- * --model" (let claude pick its own default).
- */
-function resolveCurrentModel() {
-  try {
-    const raw = fs.readFileSync(ACTIVE_SETTINGS_FILE, 'utf8');
-    const s = JSON.parse(raw);
-    return (s && (s.model || (s.env && s.env.ANTHROPIC_MODEL))) || '';
-  } catch (e) {
-    return '';
-  }
-}
 
 /**
  * Build a short, human-readable summary of a tool call's input so the Android
@@ -119,8 +98,10 @@ function summarizeToolResult(content) {
 class ClaudeSession extends EventEmitter {
   constructor(id, directory, options = {}) {
     super();
+    this.agent = options.agent || 'claude';
     this.id = id;                 // also used as the claude --session-id (UUID)
     this.directory = directory;
+    this.modelOverride = options.model || '';
     this.permissionMode = options.permissionMode || '';
     this.createdAt = new Date();
     this.isRunning = false;
@@ -169,13 +150,14 @@ class ClaudeSession extends EventEmitter {
   toJSON() {
     return {
       id: this.id,
+      agent: this.agent || 'claude',
       directory: this.directory,
+      model: this.modelOverride || '',
       claudeSessionId: this.claudeSessionId,
       createdAt: this.createdAt.toISOString(),
       permissionMode: this.permissionMode,
-      // NOTE: model is intentionally NOT persisted. The launch model is resolved
-      // at start time from the live settings.json (see resolveCurrentModel), so a
-      // resumed session follows the active profile rather than a stale recording.
+      // Persist only an explicit per-session model override. Runtime model
+      // metadata from Claude is not persisted; empty means follow Claude config.
       chatHistory: this._chatHistory,
       pending: this._chatPending,
       // Whether the user Stopped (paused) this session. Persisted so a stopped
@@ -195,7 +177,9 @@ class ClaudeSession extends EventEmitter {
     EventEmitter.call(session);
 
     session.id = data.id;
+    session.agent = data.agent || 'claude';
     session.directory = data.directory;
+    session.modelOverride = data.model || '';
     session.claudeSessionId = data.claudeSessionId || null;
     session.createdAt = new Date(data.createdAt || Date.now());
     session.permissionMode = data.permissionMode || '';
@@ -259,11 +243,10 @@ class ClaudeSession extends EventEmitter {
     if (fs.existsSync(ACTIVE_SETTINGS_FILE)) {
       parts.push('--settings', '"' + ACTIVE_SETTINGS_FILE + '"');
     }
-    // Force the currently-active model so `--resume` can't pin a stale model
-    // from a proxy the user has since switched away from. Read fresh each start
-    // so a resumed/restarted process follows the current profile.
-    const model = resolveCurrentModel();
-    if (model) parts.push('--model', model);
+    // Only pass --model for an explicit per-session override. The default
+    // path lets --settings / Claude's own config decide the model, avoiding an
+    // unnecessary --settings + --model combination for normal launches.
+    if (this.modelOverride) parts.push('--model', this.modelOverride);
     // Single command string + shell:true (rather than an args array) so Windows
     // resolves the `claude` launcher and we avoid Node's DEP0190 warning. Every
     // token here is fixed/trusted — the user prompt travels via stdin, never the
@@ -589,6 +572,20 @@ class ClaudeSession extends EventEmitter {
     this._toolBlocks.clear();
     this._restart();
     console.log(`[ClaudeSession ${this.id}] restarted (model refresh)`);
+  }
+
+  getModel() {
+    return this.modelOverride || this.model || '';
+  }
+
+  switchModel(model) {
+    return this.setModel(model);
+  }
+
+  setModel(model) {
+    this.modelOverride = (model || '').trim();
+    if (this.isRunning) this.restart();
+    return this.modelOverride;
   }
 
   /** Kill the current process (silently) and relaunch it resuming the session. */

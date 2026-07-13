@@ -370,9 +370,19 @@ public class WebSocketManager {
     }
 
     public boolean sendCreateSession(String directory) {
+        return sendCreateSession(directory, "claude", "");
+    }
+
+    public boolean sendCreateSession(String directory, String agent) {
+        return sendCreateSession(directory, agent, "");
+    }
+
+    public boolean sendCreateSession(String directory, String agent, String model) {
         JsonObject msg = new JsonObject();
         msg.addProperty("type", "create_session");
         msg.addProperty("directory", directory);
+        msg.addProperty("agent", agent != null && !agent.isEmpty() ? agent : "claude");
+        if (model != null && !model.trim().isEmpty()) msg.addProperty("model", model.trim());
         return send(gson.toJson(msg));
     }
 
@@ -495,6 +505,21 @@ public class WebSocketManager {
         JsonObject msg = new JsonObject();
         msg.addProperty("type", "restart_session");
         msg.addProperty("session_id", sessionId);
+        return send(gson.toJson(msg));
+    }
+
+    public boolean sendSwitchSessionModel(String sessionId, String model) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "switch_session_model");
+        msg.addProperty("session_id", sessionId);
+        msg.addProperty("model", model != null ? model.trim() : "");
+        return send(gson.toJson(msg));
+    }
+
+    public boolean sendListAgentModels(String agent) {
+        JsonObject msg = new JsonObject();
+        msg.addProperty("type", "list_agent_models");
+        msg.addProperty("agent", agent != null && !agent.trim().isEmpty() ? agent.trim() : "claude");
         return send(gson.toJson(msg));
     }
 

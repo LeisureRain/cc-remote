@@ -5,6 +5,8 @@ package com.romp.ccremote.model;
  */
 public class SessionInfo {
     public String id;
+    public String agent;       // "claude", "codex", "opencode"
+    public String model;
     public String directory;
     public String createdAt;
     public String status;      // "running", "stopped" or "exited"
@@ -33,6 +35,16 @@ public class SessionInfo {
             return dir.substring(lastSep + 1);
         }
         return dir;
+    }
+
+    public String getAgentLabel() {
+        if ("codex".equals(agent)) return "Codex";
+        if ("opencode".equals(agent)) return "OpenCode";
+        return "Claude";
+    }
+
+    public String getModelLabel() {
+        return model != null && !model.isEmpty() ? model : "default";
     }
 
     public String getDisplayStatus() {
