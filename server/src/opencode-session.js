@@ -154,9 +154,18 @@ class OpenCodeSession extends EventEmitter {
 
     console.log(`[OpenCodeSession ${this.id}] PID ${this.child.pid} (${this.openCodeSessionId ? 'resume' : 'new'})`);
 
+    this.child.stdout.on('error', (err) => {
+      console.error(`[OpenCodeSession ${this.id}] stdout error: ${err.message}`);
+    });
     this._stdoutRl = readline.createInterface({ input: this.child.stdout });
     this._stdoutRl.on('line', (line) => this._onLine(line));
+    this._stdoutRl.on('error', (err) => {
+      console.error(`[OpenCodeSession ${this.id}] readline error: ${err.message}`);
+    });
 
+    this.child.stderr.on('error', (err) => {
+      console.error(`[OpenCodeSession ${this.id}] stderr error: ${err.message}`);
+    });
     this.child.stderr.on('data', (d) => {
       const s = d.toString().trim();
       if (s) console.error(`[OpenCodeSession ${this.id}] stderr: ${s.substring(0, 500)}`);
@@ -175,8 +184,6 @@ class OpenCodeSession extends EventEmitter {
       this._finishTurn({ isError: code !== 0, text });
     });
 
-    try { this.child.stdin.end(); } catch (_) {}
-
     return { ok: true };
   }
 
@@ -188,6 +195,19 @@ class OpenCodeSession extends EventEmitter {
 
     if (obj.sessionID && obj.sessionID !== this.openCodeSessionId) {
       this._setOpenCodeSessionId(obj.sessionID);
+    }
+
+    // Auto-approve: if opencode asks for approval (e.g. for tool execution),
+    // write y\n to stdin so it doesn't hang waiting for user input.
+    {
+      const haystack = (String(obj.type || obj.event || obj.kind || '') + ' ' +
+        String((obj.part || obj).type || (obj.part || obj).kind || '')).toLowerCase();
+      if (/(approval|permission|confirm|escalat)/.test(haystack) &&
+          !/(response|result|completed|denied|approved)/.test(haystack)) {
+        try { if (this.child && this.child.stdin && this.child.stdin.writable) this.child.stdin.write('y\n'); } catch (_) {}
+        this._broadcast({ type: 'operation_approval_request', session_id: this.id, agent: this.agent });
+        return;
+      }
     }
 
     const part = obj.part || obj;

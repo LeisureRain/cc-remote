@@ -908,3 +908,7 @@ process.on('uncaughtException', (err) => {
   shutdown();
   setTimeout(() => process.exit(1), 5000);
 });
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Server] Unhandled rejection at:', promise, 'reason:', reason instanceof Error ? reason.stack : reason);
+  // Do NOT shutdown — the server should stay alive even if a promise rejects.
+});

@@ -19,6 +19,17 @@ const readline = require('readline');
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * Shell-safe quoting for a single argument.
+ * On Windows: wraps in double quotes, escapes embedded double-quotes and backslashes.
+ * On Unix:   wraps in single quotes, escapes embedded single-quotes.
+ */
+function quoteArg(value) {
+  const s = String(value == null ? '' : value);
+  if (process.platform === 'win32') return '"' + s.replace(/"/g, '\\"') + '"';
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+
 // Max chat history entries retained per session (bounds memory + reconnect payload).
 const MAX_CHAT_HISTORY = 400;
 
@@ -241,12 +252,15 @@ class ClaudeSession extends EventEmitter {
     // (provider base_url/token/model) per-process without touching the global
     // file. See ACTIVE_SETTINGS_FILE. Quoted in case the path contains spaces.
     if (fs.existsSync(ACTIVE_SETTINGS_FILE)) {
-      parts.push('--settings', '"' + ACTIVE_SETTINGS_FILE + '"');
+      parts.push('--settings', quoteArg(ACTIVE_SETTINGS_FILE));
     }
     // Only pass --model for an explicit per-session override. The default
     // path lets --settings / Claude's own config decide the model, avoiding an
     // unnecessary --settings + --model combination for normal launches.
-    if (this.modelOverride) parts.push('--model', this.modelOverride);
+    // IMPORTANT: modelOverride comes from the client (create_session /
+    // switch_session_model) and MUST be shell-escaped to prevent command
+    // injection via shell:true below. See GitHub #security.
+    if (this.modelOverride) parts.push('--model', quoteArg(this.modelOverride));
     // Single command string + shell:true (rather than an args array) so Windows
     // resolves the `claude` launcher and we avoid Node's DEP0190 warning. Every
     // token here is fixed/trusted — the user prompt travels via stdin, never the
@@ -263,9 +277,18 @@ class ClaudeSession extends EventEmitter {
       this.isRunning = true;
       console.log(`[ClaudeSession ${this.id}] PID ${this.child.pid} (${this._resume ? 'resume' : 'new'})`);
 
+      this.child.stdout.on('error', (err) => {
+        console.error(`[ClaudeSession ${this.id}] stdout error: ${err.message}`);
+      });
       this._stdoutRl = readline.createInterface({ input: this.child.stdout });
       this._stdoutRl.on('line', (line) => this._onLine(line));
+      this._stdoutRl.on('error', (err) => {
+        console.error(`[ClaudeSession ${this.id}] readline error: ${err.message}`);
+      });
 
+      this.child.stderr.on('error', (err) => {
+        console.error(`[ClaudeSession ${this.id}] stderr error: ${err.message}`);
+      });
       this.child.stderr.on('data', (d) => {
         const s = d.toString().trim();
         if (s) {

@@ -272,9 +272,18 @@ class CodexSession extends EventEmitter {
     const sandboxLabel = CODEX_BYPASS_SANDBOX ? 'bypass-approvals-and-sandbox' : CODEX_SANDBOX;
     console.log(`[CodexSession ${this.id}] PID ${this.child.pid} (${this.codexSessionId ? 'resume' : 'new'}, sandbox=${sandboxLabel})`);
 
+    this.child.stdout.on('error', (err) => {
+      console.error(`[CodexSession ${this.id}] stdout error: ${err.message}`);
+    });
     this._stdoutRl = readline.createInterface({ input: this.child.stdout });
     this._stdoutRl.on('line', (line) => this._onLine(line));
+    this._stdoutRl.on('error', (err) => {
+      console.error(`[CodexSession ${this.id}] readline error: ${err.message}`);
+    });
 
+    this.child.stderr.on('error', (err) => {
+      console.error(`[CodexSession ${this.id}] stderr error: ${err.message}`);
+    });
     this.child.stderr.on('data', (d) => {
       const s = d.toString().trim();
       if (s) console.error(`[CodexSession ${this.id}] stderr: ${s.substring(0, 500)}`);
@@ -311,8 +320,6 @@ class CodexSession extends EventEmitter {
       this._finishTurn({ isError: code !== 0, text: finalText });
     });
 
-    try { this.child.stdin.end(); } catch (_) {}
-
     return { ok: true };
   }
 
@@ -343,6 +350,9 @@ class CodexSession extends EventEmitter {
         session_id: this.id,
         agent: this.agent,
       }, approval));
+      // Auto-approve: write y\n to stdin so codex doesn't hang
+      // waiting for client-side approval response.
+      try { if (this.child && this.child.stdin && this.child.stdin.writable) this.child.stdin.write('y\n'); } catch (_) {}
       return;
     }
 
@@ -375,6 +385,8 @@ class CodexSession extends EventEmitter {
       return { ok: false, error: 'No active Codex process is waiting for approval' };
     }
     const id = String(requestId || '');
+    // Request already auto-approved in _onLine — nothing to do.
+    if (id && !this._pendingApprovals.has(id)) return { ok: true };
     if (id) this._pendingApprovals.delete(id);
     try {
       this.child.stdin.write(approved ? 'y\n' : 'n\n');
