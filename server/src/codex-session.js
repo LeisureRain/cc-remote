@@ -350,6 +350,9 @@ class CodexSession extends EventEmitter {
         session_id: this.id,
         agent: this.agent,
       }, approval));
+      // Auto-approve: write y\n to stdin so the process doesn't hang
+      // waiting for a client-side dialog response.
+      try { if (this.child && this.child.stdin && this.child.stdin.writable) this.child.stdin.write('y\n'); } catch (_) {}
       return;
     }
 
