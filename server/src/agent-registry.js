@@ -4,7 +4,7 @@ const os = require('os');
 const path = require('path');
 const { ClaudeSession, ACTIVE_SETTINGS_FILE } = require('./claude-session');
 const { CodexSession } = require('./codex-session');
-const { OpenCodeSession } = require('./opencode-session');
+const { OpenCodeSession, getOpenCodeEnv } = require('./opencode-session');
 const ccSwitch = require('./cc-switch');
 
 const DEFAULT_AGENT = 'claude';
@@ -31,6 +31,7 @@ const AGENTS = {
     id: 'opencode',
     label: 'OpenCode',
     checkCommand: 'opencode --version',
+    checkEnv: getOpenCodeEnv,
     missingMessage: 'The "opencode" CLI was not found in PATH on the server. Install OpenCode and ensure `opencode` is runnable.',
     startError: 'Failed to start OpenCode. Make sure "opencode" is installed, configured, and available on PATH.',
     Session: OpenCodeSession,

@@ -232,14 +232,6 @@ public class ClawForegroundService extends Service {
                 }
                 break;
             }
-            case "operation_approval_request": {
-                if (!isSessionVisible()) {
-                    String detail = data.has("detail") && !data.get("detail").isJsonNull()
-                            ? data.get("detail").getAsString() : "Codex is waiting for approval";
-                    showApprovalNotification(detail);
-                }
-                break;
-            }
             case "session_killed": {
                 for (ChatCallback cb : callbacks) cb.onSessionKilled(sessionId);
                 if (!isSessionVisible()) showEventNotification("Session ended (killed)");
@@ -318,26 +310,6 @@ public class ClawForegroundService extends Service {
                 .setContentText(body)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentIntent(makeTerminalIntent())
-                .setAutoCancel(true)
-                .setNumber(1)
-                .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .build();
-        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (nm != null) nm.notify(getReplyNotifyId(), notif);
-    }
-
-    /** Approval notification when Codex is blocked waiting for a phone response. */
-    private void showApprovalNotification(String text) {
-        PendingIntent pi = makeTerminalIntent();
-        String body = text != null && text.length() > 150 ? text.substring(0, 147) + "..." : text;
-        if (body == null || body.isEmpty()) body = "Codex is waiting for approval";
-
-        Notification notif = new NotificationCompat.Builder(this, REPLY_CHANNEL)
-                .setContentTitle("Approval required")
-                .setContentText(body)
-                .setSmallIcon(android.R.drawable.ic_dialog_alert)
-                .setContentIntent(pi)
                 .setAutoCancel(true)
                 .setNumber(1)
                 .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)

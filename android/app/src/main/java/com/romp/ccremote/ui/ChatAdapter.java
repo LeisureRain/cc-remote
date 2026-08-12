@@ -33,19 +33,10 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
     private static final int VIEW_TYPE_CLAUDE = 1;
     private static final int VIEW_TYPE_TOOL = 2;
 
-    public interface OnToolClickListener {
-        void onToolClick(int position, ChatMessage msg);
-    }
-
     private final List<ChatMessage> messages = new ArrayList<>();
     private final SimpleDateFormat timeFmt = new SimpleDateFormat("HH:mm", Locale.getDefault());
     private Markwon markwon;
     private boolean markwonInited;
-    private OnToolClickListener toolClickListener;
-
-    public void setOnToolClickListener(OnToolClickListener listener) {
-        this.toolClickListener = listener;
-    }
 
     public void addMessage(ChatMessage msg) {
         messages.add(msg);
@@ -219,8 +210,7 @@ public class ChatAdapter extends RecyclerView.Adapter<ChatAdapter.Holder> {
 
         // Tool indicator: compact, no Markdown, no timestamp, no toggle
         if (msg.type == ChatMessage.TYPE_TOOL) {
-            holder.itemView.setOnClickListener(toolClickListener != null
-                    ? v -> toolClickListener.onToolClick(position, msg) : null);
+            holder.itemView.setOnClickListener(null);
             if (holder.toolNameView != null) {
                 String name = msg.toolName != null ? msg.toolName : "tool";
                 String label = (msg.toolDone ? "[done] " : "[running] ") + name;

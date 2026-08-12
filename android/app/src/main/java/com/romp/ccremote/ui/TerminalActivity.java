@@ -82,13 +82,6 @@ public class TerminalActivity extends AppCompatActivity
     // Track the last user message for local persistence pairing
     private ChatMessage lastSentUser = null;
 
-    // Pending approval state — set by operation_approval_request, consumed on tap.
-    private String pendingApprovalId = null;
-    private String pendingApprovalAction = null;
-    private String pendingApprovalDetail = null;
-    private String pendingApprovalCommand = null;
-    private String pendingApprovalReason = null;
-
     private final Runnable statusTick = new Runnable() {
         @Override public void run() {
             if (!turnActive) return;
@@ -168,12 +161,6 @@ public class TerminalActivity extends AppCompatActivity
         layoutManager.setStackFromEnd(true);
         chatList.setLayoutManager(layoutManager);
         chatList.setAdapter(chatAdapter);
-        chatAdapter.setOnToolClickListener((pos, msg) -> {
-            if (pendingApprovalId != null) {
-                showApprovalDialog(pendingApprovalId, pendingApprovalAction,
-                        pendingApprovalDetail, pendingApprovalCommand, pendingApprovalReason);
-            }
-        });
         chatList.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(RecyclerView rv, int dx, int dy) {
                 int last = layoutManager.findLastCompletelyVisibleItemPosition();
@@ -248,7 +235,6 @@ public class TerminalActivity extends AppCompatActivity
             WebSocketManager wm = WebSocketManager.getInstance();
             wm.removeMessageListener(messageListener);
             wm.removeConnectionListener(connectionListener);
-            // Don't stop service 鈥?keep connection alive
         }
     }
 
@@ -616,34 +602,6 @@ public class TerminalActivity extends AppCompatActivity
                 runOnUiThread(() -> onToolEvent(status, name, id, detail, ok, result));
                 break;
             }
-            case "operation_approval_request": {
-                String requestId = data.has("request_id") && !data.get("request_id").isJsonNull()
-                        ? data.get("request_id").getAsString() : "";
-                String action = data.has("action") && !data.get("action").isJsonNull()
-                        ? data.get("action").getAsString() : "operation";
-                String detail = data.has("detail") && !data.get("detail").isJsonNull()
-                        ? data.get("detail").getAsString() : "";
-                String command = data.has("command") && !data.get("command").isJsonNull()
-                        ? data.get("command").getAsString() : "";
-                String reason = data.has("reason") && !data.get("reason").isJsonNull()
-                        ? data.get("reason").getAsString() : "";
-                runOnUiThread(() -> showApprovalIndicator(requestId, action, detail, command, reason));
-                break;
-            }
-            case "operation_approval_resolved": {
-                boolean approved = data.has("approved") && data.get("approved").getAsBoolean();
-                runOnUiThread(() -> {
-                    pendingApprovalId = null;
-                    pendingApprovalAction = null;
-                    pendingApprovalDetail = null;
-                    pendingApprovalCommand = null;
-                    pendingApprovalReason = null;
-                    chatAdapter.addMessage(new ChatMessage(ChatMessage.TYPE_CLAUDE,
-                            approved ? "Operation approved" : "Operation denied"));
-                    scrollToBottom();
-                });
-                break;
-            }
             case "session_thinking": {
                 runOnUiThread(this::onThinking);
                 break;
@@ -657,64 +615,6 @@ public class TerminalActivity extends AppCompatActivity
                 break;
             }
         }
-    }
-
-    private void showApprovalIndicator(String requestId, String action, String detail,
-                                       String command, String reason) {
-        markActivity();
-        if (!turnActive) startTurnUi(chatAdapter.getItemCount());
-        statusPhase = PHASE_TOOL;
-        currentToolLabel = "approval required";
-        updateStatusBar();
-
-        // Store for later when user taps the indicator.
-        pendingApprovalId = requestId;
-        pendingApprovalAction = action;
-        pendingApprovalDetail = detail;
-        pendingApprovalCommand = command;
-        pendingApprovalReason = reason;
-
-        StringBuilder body = new StringBuilder();
-        if (detail != null && !detail.isEmpty()) body.append(detail);
-        if (command != null && !command.isEmpty() && !command.equals(detail)) {
-            if (body.length() > 0) body.append("\n\n");
-            body.append(command);
-        }
-        if (reason != null && !reason.isEmpty() && body.indexOf(reason) < 0) {
-            if (body.length() > 0) body.append("\n\nReason: ");
-            body.append(reason);
-        }
-        String bodyStr = body.length() > 0 ? body.toString() : "requesting permission";
-
-        // Add a tappable tool indicator — no forced dialog.
-        chatAdapter.addMessage(new ChatMessage("⚠ approval", requestId, action + " — " + bodyStr));
-        scrollToBottom();
-    }
-
-    private void showApprovalDialog(String requestId, String action, String detail,
-                                    String command, String reason) {
-        StringBuilder body = new StringBuilder();
-        if (detail != null && !detail.isEmpty()) body.append(detail);
-        if (command != null && !command.isEmpty() && !command.equals(detail)) {
-            if (body.length() > 0) body.append("\n\n");
-            body.append(command);
-        }
-        if (reason != null && !reason.isEmpty() && body.indexOf(reason) < 0) {
-            if (body.length() > 0) body.append("\n\nReason: ");
-            body.append(reason);
-        }
-        if (body.length() == 0) body.append("The agent is requesting permission to continue.");
-
-        new AlertDialog.Builder(this)
-                .setTitle("Approve Operation")
-                .setMessage(body.toString())
-                .setPositiveButton("Approve", (d, w) ->
-                        WebSocketManager.getInstance().sendApprovalResponse(sessionId, requestId, true))
-                .setNegativeButton("Deny", (d, w) ->
-                        WebSocketManager.getInstance().sendApprovalResponse(sessionId, requestId, false))
-                .setOnCancelListener(d -> { /* dismiss only — no auto-deny */ })
-                .create()
-                .show();
     }
 
     // ============================================================
@@ -745,11 +645,6 @@ public class TerminalActivity extends AppCompatActivity
     private void endTurnUi() {
         turnActive = false;
         streamingIntoBubble = false;
-        pendingApprovalId = null;
-        pendingApprovalAction = null;
-        pendingApprovalDetail = null;
-        pendingApprovalCommand = null;
-        pendingApprovalReason = null;
         uiHandler.removeCallbacks(statusTick);
         setStreaming(false);
         statusBar.setVisibility(android.view.View.GONE);
@@ -993,7 +888,9 @@ public class TerminalActivity extends AppCompatActivity
         runOnUiThread(() -> {
             toolbarStatus.setText(connected ? "connected" : "disconnected");
             toolbarStatus.setTextColor(connected ? 0xFF51CF66 : 0xFFFFD43B);
-            if (connected) WebSocketManager.getInstance().sendConnectSession(sessionId);
+            if (connected) {
+                WebSocketManager.getInstance().sendConnectSession(sessionId);
+            }
         });
     }
 

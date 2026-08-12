@@ -2,6 +2,10 @@
 .cc-remote-token
 server/profiles/
 server/sessions/
+server/.opencode-config/
+server/.opencode-data/
+.tmp-opencode-config/
+.tmp-opencode-data/
 
 # Articles / Publishing
 articles/

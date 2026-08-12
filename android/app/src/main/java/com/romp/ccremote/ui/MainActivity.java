@@ -818,17 +818,46 @@ public class MainActivity extends AppCompatActivity {
         } catch (PackageManager.NameNotFoundException e) {
             version = "?";
         }
-        String message = "CC Remote\n\n"
-                + "Version: " + version + "\n\n"
-                + "Author: romp\n"
-                + "Email: srpol@outlook.com\n\n"
-                + "Remote Claude Code via Android.\n"
-                + "Code from your couch.\n\n"
-                + "GitHub: https://github.com/LeisureRain/cc-remote";
+
+        int padH = (int) (20 * getResources().getDisplayMetrics().density);
+        int padV = (int) (12 * getResources().getDisplayMetrics().density);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(padH, padV, padH, padV);
+
+        TextView updateTitle = new TextView(this);
+        updateTitle.setText("v" + version + " update");
+        updateTitle.setTextColor(0xFFFFFFFF);
+        updateTitle.setTextSize(22);
+        updateTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+        root.addView(updateTitle);
+
+        TextView updateSummary = new TextView(this);
+        updateSummary.setText("Removed mobile approvals for steadier remote sessions.");
+        updateSummary.setTextColor(0xFF51CF66);
+        updateSummary.setTextSize(15);
+        updateSummary.setPadding(0, 6, 0, 12);
+        root.addView(updateSummary);
+
+        TextView updateDetails = new TextView(this);
+        updateDetails.setText(
+                "What's changed\n"
+                        + "- Removed the phone approval flow.\n"
+                        + "- Kept Claude, Codex, and OpenCode session support.\n"
+                        + "- Codex now runs non-interactively to avoid stdin stalls.\n\n"
+                        + "About\n"
+                        + "CC Remote helps start and monitor local coding-agent sessions from Android.\n\n"
+                        + "Author: romp\n"
+                        + "Email: srpol@outlook.com\n"
+                        + "GitHub: https://github.com/LeisureRain/cc-remote");
+        updateDetails.setTextColor(0xFFE0E0E0);
+        updateDetails.setTextSize(14);
+        updateDetails.setLineSpacing(2, 1.0f);
+        root.addView(updateDetails);
 
         new AlertDialog.Builder(this)
-                .setTitle("About")
-                .setMessage(message)
+                .setTitle("What's New")
+                .setView(root)
                 .setPositiveButton("OK", null)
                 .create()
                 .show();

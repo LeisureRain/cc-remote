@@ -314,7 +314,10 @@ function checkAgentAvailable(agent) {
     const def = getAgentDefinition(agent);
     if (!def) return resolve(false);
     if (agentAvailability.get(def.id) === true) return resolve(true);
-    exec(def.checkCommand, { timeout: 8000 }, (err) => {
+    const env = typeof def.checkEnv === 'function'
+      ? def.checkEnv(process.env)
+      : process.env;
+    exec(def.checkCommand, { timeout: 8000, env }, (err) => {
       if (!err) agentAvailability.set(def.id, true);
       resolve(!err);
     });
@@ -583,19 +586,6 @@ wss.on('connection', (ws, req) => {
         const s = sessionManager.getSession(sid);
         if (!s) { sendToClient(ws, { type: 'error', message: `Session ${sid} not found` }); return; }
         const r = s.interrupt();
-        if (!r.ok) sendToClient(ws, { type: 'error', message: r.error });
-        break;
-      }
-      case 'approval_response': {
-        const sid = message.session_id || currentSessionId;
-        if (!sid) { sendToClient(ws, { type: 'error', message: 'No session specified' }); return; }
-        const s = sessionManager.getSession(sid);
-        if (!s) { sendToClient(ws, { type: 'error', message: `Session ${sid} not found` }); return; }
-        if (typeof s.respondToApproval !== 'function') {
-          sendToClient(ws, { type: 'error', message: `${s.agent || 'This session'} does not support operation approvals` });
-          return;
-        }
-        const r = s.respondToApproval(message.request_id || '', !!message.approved);
         if (!r.ok) sendToClient(ws, { type: 'error', message: r.error });
         break;
       }

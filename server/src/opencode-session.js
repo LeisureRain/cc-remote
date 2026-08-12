@@ -10,11 +10,16 @@ const { EventEmitter } = require('events');
 const { spawn } = require('child_process');
 const readline = require('readline');
 const path = require('path');
+const fs = require('fs');
 
 const MAX_CHAT_HISTORY = 400;
 const DEFAULT_MODEL_KEY = '__default__';
 const MODEL_SWITCH_CONTEXT_MESSAGES = 12;
 const MODEL_SWITCH_CONTEXT_CHARS = 6000;
+const OPENCODE_CONFIG_HOME = process.env.OPENCODE_XDG_CONFIG_HOME ||
+  path.join(__dirname, '..', '.opencode-config');
+const OPENCODE_DATA_HOME = process.env.OPENCODE_XDG_DATA_HOME ||
+  path.join(__dirname, '..', '.opencode-data');
 
 function quoteArg(s) {
   return '"' + String(s).replace(/(["\\])/g, '\\$1') + '"';
@@ -27,6 +32,17 @@ function commandFor(args) {
     ? path.join(appData, 'npm', 'node_modules', 'opencode-ai', 'bin', 'opencode.exe')
     : 'opencode';
   return { file: exe, args, shell: false };
+}
+
+function getOpenCodeEnv(baseEnv = process.env) {
+  const env = Object.assign({}, baseEnv, { FORCE_COLOR: '0', NO_COLOR: '1' });
+  if (!env.XDG_CONFIG_HOME) env.XDG_CONFIG_HOME = OPENCODE_CONFIG_HOME;
+  if (!env.XDG_DATA_HOME) env.XDG_DATA_HOME = OPENCODE_DATA_HOME;
+  try {
+    fs.mkdirSync(env.XDG_CONFIG_HOME, { recursive: true });
+    fs.mkdirSync(env.XDG_DATA_HOME, { recursive: true });
+  } catch (_) {}
+  return env;
 }
 
 function summarizeTool(part) {
@@ -78,7 +94,7 @@ class OpenCodeSession extends EventEmitter {
     this._modelChangedSinceLastTurn = false;
     this._stopped = false;
     this._finalSent = false;
-    this._pendingApprovals = new Set();
+    this._stderrText = '';
     this.child = null;
     this._stdoutRl = null;
   }
@@ -127,6 +143,7 @@ class OpenCodeSession extends EventEmitter {
     this._chatBusy = true;
     this._chatPending = prompt;
     this._turnText = '';
+    this._stderrText = '';
     this._turnStartedAt = Date.now();
     this._finalSent = false;
     const outboundPrompt = this._modelChangedSinceLastTurn
@@ -145,7 +162,8 @@ class OpenCodeSession extends EventEmitter {
       this.child = spawn(cmd.file, cmd.args, {
         cwd: this.directory,
         shell: cmd.shell,
-        env: Object.assign({}, process.env, { FORCE_COLOR: '0', NO_COLOR: '1' }),
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: getOpenCodeEnv(),
       });
     } catch (err) {
       this._chatBusy = false;
@@ -169,7 +187,10 @@ class OpenCodeSession extends EventEmitter {
     });
     this.child.stderr.on('data', (d) => {
       const s = d.toString().trim();
-      if (s) console.error(`[OpenCodeSession ${this.id}] stderr: ${s.substring(0, 500)}`);
+      if (s) {
+        this._stderrText += (this._stderrText ? '\n' : '') + s;
+        console.error(`[OpenCodeSession ${this.id}] stderr: ${s.substring(0, 500)}`);
+      }
     });
 
     this.child.on('error', (err) => {
@@ -179,9 +200,18 @@ class OpenCodeSession extends EventEmitter {
 
     this.child.on('exit', (code) => {
       this.exitCode = code;
+    });
+
+    this.child.on('close', (code) => {
+      if (this.exitCode == null) this.exitCode = code;
       this.child = null;
       if (this._stdoutRl) { try { this._stdoutRl.close(); } catch (_) {} this._stdoutRl = null; }
-      const text = this._turnText.trim() || (code !== 0 ? `OpenCode exited with code ${code}` : '');
+      let text = this._turnText.trim();
+      if (code !== 0) {
+        const stderr = this._stderrText.trim();
+        text = text || `OpenCode exited with code ${code}`;
+        if (stderr) text += `\n\n${stderr}`;
+      }
       this._finishTurn({ isError: code !== 0, text });
     });
 
@@ -198,9 +228,8 @@ class OpenCodeSession extends EventEmitter {
       this._setOpenCodeSessionId(obj.sessionID);
     }
 
-    // Approval request: broadcast to client, do NOT auto-approve.
-    // The client shows a non-blocking tappable indicator; the user can
-    // respond at their convenience via respondToApproval.
+    // Approval request: broadcast to client for visibility. The process is
+    // run with stdin ignored, so OpenCode must resolve non-interactively.
     if (/(approval|permission|confirm)/.test(String(obj.type || obj.event || '').toLowerCase()) &&
         !/(response|result|completed|denied|approved)/.test(String(obj.type || '').toLowerCase())) {
       const part = obj.part || obj;
@@ -248,31 +277,10 @@ class OpenCodeSession extends EventEmitter {
     this._chatBusy = false;
     this._chatPending = null;
     this._turnText = '';
-    this._pendingApprovals.clear();
     const finalText = text || '';
     if (finalText) this._pushHistory({ role: 'claude', text: finalText, ts: Date.now() });
     this.emit('turnComplete');
     this._broadcast({ type: 'session_response', session_id: this.id, data: finalText, is_error: !!isError });
-  }
-
-  respondToApproval(requestId, approved) {
-    if (!this.child || !this.child.stdin || !this.child.stdin.writable) {
-      return { ok: false, error: 'No active OpenCode process is waiting for approval' };
-    }
-    const id = String(requestId || '');
-    if (id) this._pendingApprovals.delete(id);
-    try {
-      this.child.stdin.write(approved ? 'y\n' : 'n\n');
-      this._broadcast({
-        type: 'operation_approval_resolved',
-        session_id: this.id,
-        request_id: id,
-        approved: !!approved,
-      });
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: 'Failed to write approval response: ' + err.message };
-    }
   }
 
   interrupt() {
@@ -352,7 +360,6 @@ class OpenCodeSession extends EventEmitter {
     this._stopped = true;
     this.isRunning = false;
     this.exitCode = 0;
-    this._pendingApprovals.clear();
     if (this._chatBusy) this.interrupt();
     this._broadcast({ type: 'session_stopped', session_id: this.id });
   }
@@ -429,4 +436,4 @@ class OpenCodeSession extends EventEmitter {
   }
 }
 
-module.exports = { OpenCodeSession };
+module.exports = { OpenCodeSession, getOpenCodeEnv };
