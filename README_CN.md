@@ -1,8 +1,8 @@
 # CC Remote
 
-**躺在沙发上写代码。** CC Remote 让你用 Android 手机远程操控工作站上的 Claude Code — 浏览项目目录、启动编程会话、切换 AI 供应商、用聊天的方式指挥 Claude 干活。专为 vibe coder 打造：灵感来了掏手机就能写，不用被绑在电脑前。
+**躺在沙发上写代码。** CC Remote 让你用 Android 手机远程操控工作站上的 Claude Code、Codex 和 OpenCode —— 浏览项目目录、启动编程代理会话、切换 AI 供应商、用聊天的方式指挥代理干活。专为 vibe coder 打造：灵感来了掏手机就能写，不用被绑在电脑前。
 
-喝咖啡时突然有个想法？掏出手机，用自然语言描述需求，Claude Code 在你的真实开发机上帮你搞定。你只需要手机和电脑之间有个网络连接。
+喝咖啡时突然有个想法？掏出手机，选择 Claude Code、Codex 或 OpenCode，用自然语言描述需求，你的真实开发机就会帮你搞定。你只需要手机和电脑之间有个网络连接。
 
 > [English](README.md) | 中文
 
@@ -21,17 +21,18 @@
 ## 工作原理
 
 ```
-┌──────────────┐   WebSocket (JSON)   ┌────────────────┐  stream-json  ┌──────────┐
-│  Android App │ ◄──────────────────► │ Node.js Server │ ◄───(stdio)──► │  claude  │
-│   (随时随地)  │   局域网 / VPN 连接   │   (你的电脑)    │               │   CLI    │
-└──────────────┘                     └────────────────┘               └──────────┘
+┌──────────────┐   WebSocket (JSON)   ┌────────────────┐     stdio     ┌──────────────┐
+│  Android App │ ◄──────────────────► │ Node.js Server │ ◄────────────► │ Agent CLI    │
+│   (随时随地)  │   局域网 / VPN 连接   │   (你的电脑)    │               │ claude/codex │
+└──────────────┘                     └────────────────┘               │ opencode     │
+                                                                        └──────────────┘
 ```
 
-1. **Node.js 服务端**运行在你的工作机上。每个会话是一个常驻的 `claude -p` 进程，跑在 stream-json 模式下（headless，无 PTY）—— 用户的每一轮输入以 NDJSON 写入 stdin，Claude 的流式事件从 stdout 返回。
-2. **Android 应用**通过 WebSocket 连接，列出会话、浏览目录、切换供应商、与 Claude 对话。
-3. Claude Code 在你的工作机上读写文件，就像你正坐在键盘前一样。
+1. **Node.js 服务端**运行在你的工作机上，并按会话选择启动本地编程代理 CLI：Claude Code（`claude`）、Codex（`codex`）或 OpenCode（`opencode`）。
+2. **Android 应用**通过 WebSocket 连接，列出会话、浏览目录、选择代理、在支持的场景下切换供应商/模型，并与当前会话对话。
+3. 代理在你的工作机上读写文件，就像你正坐在键盘前一样。
 
-聊天界面实时渲染 Claude 的 Markdown 回复 —— 包括表格、代码块、链接。你用自然语言描述需求，Claude 执行，你在手机上看到流式的实时结果。会话是持久化的：服务端重启后依然存在，并通过 `--resume` 带着完整上下文恢复。
+聊天界面实时渲染 Markdown 回复 —— 包括表格、代码块、链接。你用自然语言描述需求，所选代理执行，你在手机上看到流式的实时结果。会话是持久化的：服务端重启后依然存在，并在底层 CLI 支持时带着完整上下文恢复。
 
 ## 通过 ZeroTier 远程访问
 
@@ -83,11 +84,11 @@ Claude Code 自带了 [Remote Control](https://code.claude.com/docs/zh-CN/remote
 
 ## 功能
 
-## 功能
-
-- **会话管理** —— 创建、列出、连接、停止/恢复、删除 Claude Code 会话；多个会话可同时运行
+- **多编程代理支持** —— 在同一个 Android 应用里运行 Claude Code、Codex 或 OpenCode 会话
+- **会话管理** —— 创建、列出、连接、停止/恢复、删除编程代理会话；多个会话可同时运行
 - **持久化会话** —— 服务端重启后会话依然存在，并带着完整上下文恢复（`--resume`）；已暂停的会话重启后仍保持暂停
-- **供应商与模型切换** —— 在应用里随时切换会话使用的 AI 供应商/模型，并自动发现 [CC Switch](https://github.com/farion1231/cc-switch) 配置
+- **供应商与模型切换** —— 在应用里随时切换会话使用的 AI 供应商/profile，并自动发现 [CC Switch](https://github.com/farion1231/cc-switch) 配置
+- **会话级模型切换** —— 每个会话都可以单独选择或手动填写模型，因此不同 Claude Code、Codex、OpenCode 会话可以同时使用不同模型
 - **Markdown 渲染** —— 完整支持 Markdown，包括表格、代码块、链接
 - **实时活动视图** —— 状态条实时显示 Claude 当前在干什么（思考 / 运行工具及其参数 / 输出回复）并带计时，计时在断线重连、切后台再回到前台后依然准确；某轮长时间无响应时变为琥珀色，方便区分「卡住」和「只是慢」，且整轮过程中随时可中断。工具调用会在聊天里留下可滚动的 `⚙ 名称 · 详情` 轨迹，工具执行完成后每条还会标注 `→ 输出片段`（出错时显示为红色）
 - **工作区限制** —— 可配置服务端锁定到指定目录，禁止访问外部路径
@@ -121,7 +122,7 @@ npm start
 node package-win.mjs   # -> dist/CCRemoteLauncher-v<VERSION>.exe（发这一个文件即可）
 ```
 
-目标机器只需 PATH 中有 Node.js 和 `claude` CLI（服务端真正干活是调用本机的 claude，exe 替代不了它）。
+目标机器只需 PATH 中有 Node.js，以及至少一个受支持的编程代理 CLI（`claude`、`codex` 或 `opencode`；服务端真正干活是调用本机 CLI，exe 替代不了它）。
 详见 `launcher/README.md`。
 
 ### Android
@@ -164,7 +165,7 @@ node package-android.mjs   # -> dist/cc-remote-v<VERSION>.apk
 |---|---|
 | `port` | HTTP/WebSocket 监听端口 |
 | `host` | 绑定地址（`0.0.0.0` 允许局域网访问） |
-| `maxSessions` | 最大同时会话数 |
+| `maxSessions` | 最大同时编程代理会话数 |
 | `workspace` | 设置后，目录浏览和会话创建将被限制在此路径及其子目录内 |
 | `persistSessions` | 将会话状态持久化到磁盘，并在重启时恢复 |
 | `sessionsDir` | 持久化会话状态的目录（相对 `server/`） |
@@ -218,11 +219,13 @@ CC Remote 可以直接在应用里切换 Claude Code 会话所使用的 **AI 供
 
 ## 环境要求
 
-**服务端：** Node.js 18+（需内置 `node:sqlite` 以发现 CC Switch 配置，推荐 Node 22+），`claude` CLI 已安装并在 PATH 中。
+**服务端：** Node.js 18+（需内置 `node:sqlite` 以发现 CC Switch 配置，推荐 Node 22+），并且至少安装一个受支持的编程代理 CLI 且在 PATH 中：`claude`、`codex` 或 `opencode`。
+
+**已通过测试的本机 CLI 版本：** Android 端会话已在本机使用 Claude Code `2.1.170 (Claude Code)`、Codex CLI `codex-cli 0.147.0`、OpenCode `1.17.16` 验证可用。
 
 **Android：** API 26+ (Android 8.0)。
 
-**Windows 启动器：** .NET Framework 4.8（Windows 10 1903+/11 系统自带），外加 PATH 中的 Node.js 与 `claude`。
+**Windows 启动器：** .NET Framework 4.8（Windows 10 1903+/11 系统自带），外加 PATH 中的 Node.js 与至少一个受支持的编程代理 CLI。
 
 ## 许可证
 

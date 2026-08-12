@@ -1,8 +1,8 @@
 # CC Remote
 
-**Code from your couch.** CC Remote lets you drive Claude Code on your workstation from your Android phone — browse project directories, start coding sessions, switch AI providers, and chat with Claude over WebSocket. It's the ultimate tool for vibe coders who want to keep the flow going without being chained to a desk.
+**Code from your couch.** CC Remote lets you drive Claude Code, Codex, and OpenCode on your workstation from your Android phone — browse project directories, start coding-agent sessions, switch AI providers, and chat over WebSocket. It's the ultimate tool for vibe coders who want to keep the flow going without being chained to a desk.
 
-Got an idea while grabbing coffee? Pull out your phone, describe what you want, and Claude Code does the rest on your real dev machine. All you need is a network connection between your phone and your workstation.
+Got an idea while grabbing coffee? Pull out your phone, pick Claude Code, Codex, or OpenCode, describe what you want, and your real dev machine does the rest. All you need is a network connection between your phone and your workstation.
 
 > English | [中文](README_CN.md)
 
@@ -21,17 +21,18 @@ Got an idea while grabbing coffee? Pull out your phone, describe what you want, 
 ## How It Works
 
 ```
-┌──────────────┐     WebSocket (JSON)     ┌────────────────┐   stream-json   ┌──────────┐
-│ Android App  │ ◄──────────────────────► │ Node.js Server │ ◄────(stdio)───► │  claude  │
-│  (anywhere)  │     over LAN / VPN       │  (workstation) │                 │   CLI    │
-└──────────────┘                          └────────────────┘                 └──────────┘
+┌──────────────┐     WebSocket (JSON)     ┌────────────────┐      stdio      ┌──────────────┐
+│ Android App  │ ◄──────────────────────► │ Node.js Server │ ◄─────────────► │ Agent CLI    │
+│  (anywhere)  │     over LAN / VPN       │  (workstation) │                 │ claude/codex │
+└──────────────┘                          └────────────────┘                 │ opencode     │
+                                                                             └──────────────┘
 ```
 
-1. The **Node.js server** runs on your workstation. Each session is one long-lived `claude -p` process in stream-json mode (headless, no PTY) — user turns go in as NDJSON on stdin, and Claude's streaming events come back on stdout.
-2. The **Android app** connects over WebSocket to list sessions, browse directories, switch providers, and chat with Claude.
-3. Claude Code reads and writes files on your workstation just like it would if you were sitting at the keyboard.
+1. The **Node.js server** runs on your workstation and starts the selected local coding-agent CLI: Claude Code (`claude`), Codex (`codex`), or OpenCode (`opencode`).
+2. The **Android app** connects over WebSocket to list sessions, browse directories, choose an agent, switch providers/models where supported, and chat with the running session.
+3. The agent reads and writes files on your workstation just like it would if you were sitting at the keyboard.
 
-The chat interface renders Claude's Markdown responses — including tables, code blocks, and links — directly in the app. You describe what you want in natural language, Claude executes, and you see the streaming result in real time. Sessions are persistent: they survive a server restart and resume with full context via `--resume`.
+The chat interface renders Markdown responses — including tables, code blocks, and links — directly in the app. You describe what you want in natural language, the selected agent executes, and you see the streaming result in real time. Sessions are persistent: they survive a server restart and resume with full context when the underlying CLI supports it.
 
 ## Remote Access with ZeroTier
 
@@ -83,9 +84,11 @@ If you have a paid Claude plan and just want basic remote access with zero setup
 
 ## Features
 
-- **Session management** — create, list, connect, stop/resume, and delete Claude Code sessions; multiple sessions run concurrently
+- **Multiple coding agents** — run Claude Code, Codex, or OpenCode sessions from the same Android app
+- **Session management** — create, list, connect, stop/resume, and delete coding-agent sessions; multiple sessions run concurrently
 - **Persistent sessions** — sessions survive a server restart and resume with full context (`--resume`); a paused session stays paused across reboots
-- **Provider & model switching** — switch the AI provider/model your sessions use on the fly, straight from the app, with automatic [CC Switch](https://github.com/farion1231/cc-switch) profile discovery
+- **Provider & model switching** — switch the AI provider/profile your sessions use on the fly, straight from the app, with automatic [CC Switch](https://github.com/farion1231/cc-switch) profile discovery
+- **Session-level model switching** — choose or manually enter a model per session, so different Claude Code, Codex, and OpenCode sessions can run different models at the same time
 - **Markdown rendering** — full Markdown support including tables, code blocks, and links
 - **Live activity view** — a status bar shows what Claude is doing right now (thinking / running a tool with its arguments / writing) with an elapsed-time counter that stays accurate across reconnects and backgrounding; it turns amber if a turn goes silent so a hang is distinguishable from a long step, and lets you interrupt at any point in the turn. Tool calls leave a browsable `⚙ name · detail` trail in the chat, each annotated with a `→ output snippet` once the tool finishes (shown in red on error)
 - **Workspace restriction** — optionally lock the server to a specific directory tree
@@ -120,8 +123,8 @@ Build it with:
 node package-win.mjs   # -> dist/CCRemoteLauncher-v<VERSION>.exe  (ship this one file)
 ```
 
-The target machine just needs Node.js + the `claude` CLI on PATH (the exe drives the local `claude`,
-it doesn't replace it). See `launcher/README.md` for details.
+The target machine just needs Node.js plus at least one supported coding-agent CLI on PATH (`claude`,
+`codex`, or `opencode`; the exe drives the local CLI, it doesn't replace it). See `launcher/README.md` for details.
 
 ### Android
 
@@ -163,7 +166,7 @@ Edit `server/config.json`:
 |---|---|
 | `port` | HTTP/WebSocket listen port |
 | `host` | Bind address (`0.0.0.0` for LAN access) |
-| `maxSessions` | Maximum concurrent Claude Code sessions |
+| `maxSessions` | Maximum concurrent coding-agent sessions |
 | `workspace` | If set, restricts directory browsing and session creation to this path and its subdirectories |
 | `persistSessions` | Persist session state to disk and restore it on restart |
 | `sessionsDir` | Directory (relative to `server/`) where persisted session state is written |
@@ -217,11 +220,13 @@ All messages are JSON with a `type` field. See [CLAUDE.md](CLAUDE.md) for the fu
 
 ## Requirements
 
-**Server:** Node.js 18+ (with built-in `node:sqlite` for CC Switch discovery — Node 22+ recommended), `claude` CLI installed and in PATH.
+**Server:** Node.js 18+ (with built-in `node:sqlite` for CC Switch discovery — Node 22+ recommended), plus at least one supported coding-agent CLI installed and in PATH: `claude`, `codex`, or `opencode`.
+
+**Tested local CLI versions:** Android-side sessions have been verified on this workstation with Claude Code `2.1.170 (Claude Code)`, Codex CLI `codex-cli 0.147.0`, and OpenCode `1.17.16`.
 
 **Android:** API 26+ (Android 8.0).
 
-**Windows launcher:** .NET Framework 4.8 (built into Windows 10 1903+/11), plus Node.js + `claude` on PATH.
+**Windows launcher:** .NET Framework 4.8 (built into Windows 10 1903+/11), plus Node.js and at least one supported coding-agent CLI on PATH.
 
 ## License
 
